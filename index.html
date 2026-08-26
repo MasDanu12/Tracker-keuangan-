@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Buku Kas - Tracker Keuangan</title>
+<meta name="theme-color" content="#1B3B2F" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<style>
+  :root {
+    --paper: #F7F3E9;
+    --paper-card: #FFFDF7;
+    --ink: #1B3B2F;
+    --ink-soft: #4A5C50;
+    --line: #C9C0A9;
+    --income: #2D6A4F;
+    --expense: #B33A3A;
+    --gold: #B8862E;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Georgia, 'Times New Roman', serif;
+    padding-bottom: 90px;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .wrap { max-width: 480px; margin: 0 auto; padding: 20px 16px 0; }
+
+  header.top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+  }
+
+  .eyebrow {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+
+  h1 { font-size: 26px; margin: 2px 0 18px; letter-spacing: 0.5px; }
+  h2.section-heading { font-size: 20px; margin: 2px 0 18px; }
+
+  .month-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    color: var(--ink-soft);
+  }
+
+  .month-nav button {
+    background: none;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .month-nav .month-label { min-width: 140px; text-align: center; font-weight: bold; }
+
+  .receipt {
+    background: var(--paper-card);
+    border-radius: 4px 4px 0 0;
+    padding: 22px 20px 18px;
+    box-shadow: 0 3px 10px rgba(27,59,47,0.12);
+    position: relative;
+  }
+
+  .receipt .label {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+
+  .receipt .balance { font-family: 'Courier New', monospace; font-size: 34px; font-weight: bold; margin: 6px 0 16px; letter-spacing: -0.5px; }
+  .receipt .balance.negative { color: var(--expense); }
+
+  .receipt .split { display: flex; justify-content: space-between; font-family: 'Courier New', monospace; font-size: 13px; }
+  .receipt .split div span.amt { display: block; font-size: 16px; font-weight: bold; margin-top: 2px; }
+  .receipt .split .in span.amt { color: var(--income); }
+  .receipt .split .out span.amt { color: var(--expense); }
+
+  .perforation {
+    height: 14px;
+    background: radial-gradient(circle at 8px 0, transparent 7px, var(--paper) 7.5px) repeat-x;
+    background-size: 16px 14px;
+    margin-bottom: 22px;
+  }
+
+  .add-btn {
+    display: block;
+    width: 100%;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    padding: 14px;
+    border-radius: 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 15px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    margin-bottom: 26px;
+  }
+  .add-btn:active { opacity: 0.85; }
+
+  .section-title {
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    font-family: 'Courier New', monospace;
+    border-bottom: 1px dashed var(--line);
+    padding-bottom: 8px;
+    margin-bottom: 6px;
+  }
+
+  .entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+
+  .entry .meta { flex: 1; padding-right: 10px; }
+  .entry .cat { font-size: 15px; font-weight: bold; }
+  .entry .note { font-size: 12.5px; color: var(--ink-soft); font-family: 'Courier New', monospace; margin-top: 2px; }
+  .entry .amt { font-family: 'Courier New', monospace; font-size: 15px; font-weight: bold; white-space: nowrap; }
+  .entry .amt.in { color: var(--income); }
+  .entry .amt.out { color: var(--expense); }
+  .entry .del { background: none; border: none; color: var(--line); font-size: 18px; margin-left: 10px; cursor: pointer; padding: 4px; }
+
+  .empty { text-align: center; padding: 40px 10px; color: var(--ink-soft); font-size: 14px; }
+
+  .overlay { position: fixed; inset: 0; background: rgba(27,59,47,0.45); display: none; align-items: flex-end; z-index: 10; }
+  .overlay.show { display: flex; }
+
+  .sheet {
+    background: var(--paper);
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    border-radius: 18px 18px 0 0;
+    padding: 20px 20px 28px;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+    max-height: 88vh;
+    overflow-y: auto;
+  }
+
+  .sheet h2 { font-size: 19px; margin: 0 0 16px; }
+
+  .toggle-type { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 16px; }
+  .toggle-type button { flex: 1; padding: 10px; border: none; background: var(--paper-card); font-family: 'Courier New', monospace; font-size: 13px; letter-spacing: 1px; cursor: pointer; color: var(--ink-soft); }
+  .toggle-type button.active.in { background: var(--income); color: white; }
+  .toggle-type button.active.out { background: var(--expense); color: white; }
+  .toggle-type button.active.piutang { background: var(--income); color: white; }
+  .toggle-type button.active.utang { background: var(--gold); color: white; }
+
+  label { display: block; font-family: 'Courier New', monospace; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--ink-soft); margin: 14px 0 6px; }
+
+  input[type="number"], input[type="text"], input[type="date"], select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-family: Georgia, serif;
+    font-size: 16px;
+    background: var(--paper-card);
+    color: var(--ink);
+  }
+
+  .sheet-actions { display: flex; gap: 10px; margin-top: 22px; }
+  .sheet-actions button { flex: 1; padding: 13px; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 14px; letter-spacing: 1px; cursor: pointer; border: none; }
+  .btn-cancel { background: transparent; border: 1px solid var(--line) !important; color: var(--ink-soft); }
+  .btn-save { background: var(--ink); color: var(--paper); }
+
+  /* Bottom tab nav */
+  .tabbar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--paper-card);
+    border-top: 1px solid var(--line);
+    display: flex;
+    max-width: 480px;
+    margin: 0 auto;
+    z-index: 5;
+  }
+  .tabbar button {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 12px 4px 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .tabbar button .ic { display: block; font-size: 18px; margin-bottom: 3px; }
+  .tabbar button.active { color: var(--ink); font-weight: bold; border-top: 2px solid var(--ink); margin-top: -1px; }
+
+  /* Period chips */
+  .chip-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 18px; }
+  .chip-row::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--paper-card);
+    font-family: 'Courier New', monospace;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+  /* Summary grid */
+  .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+  .summary-card {
+    background: var(--paper-card);
+    border-radius: 10px;
+    padding: 14px;
+    box-shadow: 0 2px 6px rgba(27,59,47,0.08);
+  }
+  .summary-card .label { font-family: 'Courier New', monospace; font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--ink-soft); }
+  .summary-card .value { font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold; margin-top: 4px; }
+  .summary-card .value.income { color: var(--income); }
+  .summary-card .value.expense { color: var(--expense); }
+
+  .chart-card {
+    background: var(--paper-card);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 6px rgba(27,59,47,0.08);
+  }
+  .chart-card .chart-title { font-family: 'Courier New', monospace; font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 14px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 14px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-family: 'Courier New', monospace; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* Utang piutang */
+  .utang-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 22px; }
+  .utang-card { border-radius: 10px; padding: 16px; box-shadow: 0 2px 6px rgba(27,59,47,0.08); }
+  .utang-card.piutang { background: #EAF4EE; }
+  .utang-card.utang { background: #FBEFE2; }
+  .utang-card .label { font-family: 'Courier New', monospace; font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--ink-soft); }
+  .utang-card .value { font-family: 'Courier New', monospace; font-size: 19px; font-weight: bold; margin-top: 4px; }
+  .utang-card.piutang .value { color: var(--income); }
+  .utang-card.utang .value { color: var(--gold); }
+
+  .utang-entry {
+    background: var(--paper-card);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 4px rgba(27,59,47,0.08);
+  }
+  .utang-entry.lunas { opacity: 0.5; }
+  .utang-entry .row1 { display: flex; justify-content: space-between; align-items: flex-start; }
+  .utang-entry .nama { font-size: 16px; font-weight: bold; }
+  .utang-entry .amt { font-family: 'Courier New', monospace; font-weight: bold; font-size: 15px; }
+  .utang-entry .amt.piutang { color: var(--income); }
+  .utang-entry .amt.utang { color: var(--gold); }
+  .utang-entry .note { font-size: 12.5px; color: var(--ink-soft); font-family: 'Courier New', monospace; margin-top: 4px; }
+  .utang-entry .actions { display: flex; gap: 8px; margin-top: 10px; }
+  .utang-entry .actions button {
+    font-family: 'Courier New', monospace;
+    font-size: 11.5px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .utang-entry .actions button.lunas-btn { border-color: var(--income); color: var(--income); }
+  .utang-entry .actions button.del-btn { border-color: var(--expense); color: var(--expense); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .sheet { animation: slideUp 0.22s ease-out; }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  }
+</style>
+</head>
+<body>
+
+<!-- TAB: CATATAN -->
+<div class="wrap" id="tab-catatan">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Tracker Keuangan</div>
+      <h1>Buku Kas</h1>
+    </div>
+  </header>
+
+  <div class="month-nav">
+    <button onclick="ubahBulan(-1)" aria-label="Bulan sebelumnya">‹</button>
+    <div class="month-label" id="labelBulan">-</div>
+    <button onclick="ubahBulan(1)" aria-label="Bulan berikutnya">›</button>
+  </div>
+
+  <div class="receipt">
+    <div class="label">Saldo Bulan Ini</div>
+    <div class="balance" id="saldoTotal">Rp 0</div>
+    <div class="split">
+      <div class="in"><span class="label">Masuk</span><span class="amt" id="totalMasuk">Rp 0</span></div>
+      <div class="out"><span class="label">Keluar</span><span class="amt" id="totalKeluar">Rp 0</span></div>
+    </div>
+  </div>
+  <div class="perforation"></div>
+
+  <button class="add-btn" onclick="bukaForm()">+ Tambah Transaksi</button>
+
+  <div class="section-title">Riwayat Transaksi</div>
+  <div id="daftarTransaksi"></div>
+</div>
+
+<!-- TAB: LAPORAN -->
+<div class="wrap" id="tab-laporan" style="display:none">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Analisa</div>
+      <h1>Laporan</h1>
+    </div>
+  </header>
+
+  <div class="chip-row" id="chipPeriode"></div>
+
+  <div class="summary-grid">
+    <div class="summary-card"><div class="label">Total Pemasukan</div><div class="value income" id="lapMasuk">Rp 0</div></div>
+    <div class="summary-card"><div class="label">Total Pengeluaran</div><div class="value expense" id="lapKeluar">Rp 0</div></div>
+    <div class="summary-card"><div class="label">Saldo Bersih</div><div class="value" id="lapSaldo">Rp 0</div></div>
+    <div class="summary-card"><div class="label">Jumlah Transaksi</div><div class="value" id="lapJumlah">0</div></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Kategori Pengeluaran</div>
+    <div id="pieContainer"></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Tren Pemasukan vs Pengeluaran</div>
+    <div id="trendContainer"></div>
+    <div class="legend">
+      <div class="legend-item"><span class="legend-dot" style="background:var(--income)"></span>Masuk</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--expense)"></span>Keluar</div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: UTANG -->
+<div class="wrap" id="tab-utang" style="display:none">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Kasbon</div>
+      <h1>Utang-Piutang</h1>
+    </div>
+  </header>
+
+  <div class="utang-summary">
+    <div class="utang-card piutang"><div class="label">Piutang Belum Lunas</div><div class="value" id="totalPiutang">Rp 0</div></div>
+    <div class="utang-card utang"><div class="label">Utang Belum Lunas</div><div class="value" id="totalUtang">Rp 0</div></div>
+  </div>
+
+  <button class="add-btn" onclick="bukaFormUtang()">+ Catat Utang / Piutang</button>
+
+  <div class="section-title">Daftar Utang & Piutang</div>
+  <div id="daftarUtang"></div>
+</div>
+
+<div class="tabbar">
+  <button id="navCatatan" class="active" onclick="switchTab('catatan')"><span class="ic">📒</span>Catatan</button>
+  <button id="navLaporan" onclick="switchTab('laporan')"><span class="ic">📊</span>Laporan</button>
+  <button id="navUtang" onclick="switchTab('utang')"><span class="ic">🤝</span>Utang</button>
+</div>
+
+<!-- FORM: TAMBAH TRANSAKSI -->
+<div class="overlay" id="overlay">
+  <div class="sheet">
+    <h2>Tambah Transaksi</h2>
+    <div class="toggle-type">
+      <button type="button" id="btnMasuk" class="in" onclick="pilihTipe('masuk')">MASUK</button>
+      <button type="button" id="btnKeluar" class="out" onclick="pilihTipe('keluar')">KELUAR</button>
+    </div>
+    <label for="inputJumlah">Jumlah (Rp)</label>
+    <input type="number" id="inputJumlah" inputmode="numeric" placeholder="0" />
+    <label for="inputKategori">Kategori</label>
+    <select id="inputKategori"></select>
+    <label for="inputCatatan">Catatan (opsional)</label>
+    <input type="text" id="inputCatatan" placeholder="mis. Beli tepung di pasar" />
+    <label for="inputTanggal">Tanggal</label>
+    <input type="date" id="inputTanggal" />
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="tutupForm()">Batal</button>
+      <button class="btn-save" onclick="simpanTransaksi()">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- FORM: TAMBAH UTANG/PIUTANG -->
+<div class="overlay" id="overlayUtang">
+  <div class="sheet">
+    <h2>Catat Utang / Piutang</h2>
+    <div class="toggle-type">
+      <button type="button" id="btnPiutang" class="piutang" onclick="pilihTipeUtang('piutang')">PIUTANG (Orang Berutang ke Saya)</button>
+    </div>
+    <div class="toggle-type">
+      <button type="button" id="btnUtang" class="utang" onclick="pilihTipeUtang('utang')">UTANG (Saya Berutang)</button>
+    </div>
+    <label for="inputNamaUtang">Nama</label>
+    <input type="text" id="inputNamaUtang" placeholder="mis. Budi / Toko Bahan" />
+    <label for="inputJumlahUtang">Jumlah (Rp)</label>
+    <input type="number" id="inputJumlahUtang" inputmode="numeric" placeholder="0" />
+    <label for="inputCatatanUtang">Catatan (opsional)</label>
+    <input type="text" id="inputCatatanUtang" placeholder="mis. Pinjam buat modal" />
+    <label for="inputTanggalUtang">Tanggal</label>
+    <input type="date" id="inputTanggalUtang" />
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="tutupFormUtang()">Batal</button>
+      <button class="btn-save" onclick="simpanUtang()">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const KATEGORI = {
+    masuk: ["Gaji", "Usaha/Jualan", "Hadiah", "Bonus", "Lainnya"],
+    keluar: ["Makan & Minum", "Transportasi", "Belanja", "Tagihan & Listrik", "Kesehatan", "Hiburan", "Pendidikan", "Cicilan/Utang", "Lainnya"]
+  };
+
+  const PALET_KATEGORI = ["#2D6A4F", "#B8862E", "#B33A3A", "#5B7B93", "#8B5E3C", "#6B5B95", "#4A5C50", "#C97B3D", "#3F6B8A", "#A64B6B"];
+
+  let transaksi = JSON.parse(localStorage.getItem("bukukas_transaksi") || "[]");
+  let utangList = JSON.parse(localStorage.getItem("bukukas_utang") || "[]");
+  let tipeAktif = "masuk";
+  let tipeUtangAktif = "piutang";
+  let bulanAktif = new Date().getMonth();
+  let tahunAktif = new Date().getFullYear();
+  let periodeAktif = "1bulan";
+  let tabAktif = "catatan";
+
+  const namaBulan = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+  const PERIODE_OPSI = [
+    { key: "7hari", label: "7 Hari", hari: 7 },
+    { key: "1bulan", label: "1 Bulan", hari: 30 },
+    { key: "3bulan", label: "3 Bulan", hari: 90 },
+    { key: "6bulan", label: "6 Bulan", hari: 180 },
+    { key: "ytd", label: "Tahun Ini", hari: null }
+  ];
+
+  function formatRupiah(angka) {
+    return "Rp " + Math.abs(Math.round(angka)).toLocaleString("id-ID");
+  }
+
+  function simpanKeStorage() { localStorage.setItem("bukukas_transaksi", JSON.stringify(transaksi)); }
+  function simpanUtangKeStorage() { localStorage.setItem("bukukas_utang", JSON.stringify(utangList)); }
+
+  // ---------- TAB SWITCHING ----------
+  function switchTab(tab) {
+    tabAktif = tab;
+    document.getElementById("tab-catatan").style.display = tab === "catatan" ? "block" : "none";
+    document.getElementById("tab-laporan").style.display = tab === "laporan" ? "block" : "none";
+    document.getElementById("tab-utang").style.display = tab === "utang" ? "block" : "none";
+    document.getElementById("navCatatan").classList.toggle("active", tab === "catatan");
+    document.getElementById("navLaporan").classList.toggle("active", tab === "laporan");
+    document.getElementById("navUtang").classList.toggle("active", tab === "utang");
+    if (tab === "laporan") renderLaporan();
+    if (tab === "utang") renderUtang();
+  }
+
+  // ---------- TAB: CATATAN ----------
+  function ubahBulan(delta) {
+    bulanAktif += delta;
+    if (bulanAktif > 11) { bulanAktif = 0; tahunAktif++; }
+    if (bulanAktif < 0) { bulanAktif = 11; tahunAktif--; }
+    renderCatatan();
+  }
+
+  function bukaForm() {
+    document.getElementById("inputTanggal").value = new Date().toISOString().slice(0,10);
+    pilihTipe("masuk");
+    document.getElementById("inputJumlah").value = "";
+    document.getElementById("inputCatatan").value = "";
+    document.getElementById("overlay").classList.add("show");
+  }
+  function tutupForm() { document.getElementById("overlay").classList.remove("show"); }
+
+  function pilihTipe(tipe) {
+    tipeAktif = tipe;
+    document.getElementById("btnMasuk").classList.toggle("active", tipe === "masuk");
+    document.getElementById("btnKeluar").classList.toggle("active", tipe === "keluar");
+    const select = document.getElementById("inputKategori");
+    select.innerHTML = "";
+    KATEGORI[tipe].forEach(k => {
+      const opt = document.createElement("option");
+      opt.value = k; opt.innerText = k;
+      select.appendChild(opt);
+    });
+  }
+
+  function simpanTransaksi() {
+    const jumlah = parseFloat(document.getElementById("inputJumlah").value);
+    if (!jumlah || jumlah <= 0) { alert("Isi jumlah yang benar dulu ya."); return; }
+    transaksi.push({
+      id: Date.now(),
+      tipe: tipeAktif,
+      jumlah: jumlah,
+      kategori: document.getElementById("inputKategori").value,
+      catatan: document.getElementById("inputCatatan").value.trim(),
+      tanggal: document.getElementById("inputTanggal").value || new Date().toISOString().slice(0,10)
+    });
+    simpanKeStorage();
+    tutupForm();
+    renderCatatan();
+  }
+
+  function hapusTransaksi(id) {
+    if (!confirm("Hapus transaksi ini?")) return;
+    transaksi = transaksi.filter(t => t.id !== id);
+    simpanKeStorage();
+    renderCatatan();
+  }
+
+  function renderCatatan() {
+    document.getElementById("labelBulan").innerText = namaBulan[bulanAktif] + " " + tahunAktif;
+    const dataBulanIni = transaksi.filter(t => {
+      const d = new Date(t.tanggal);
+      return d.getMonth() === bulanAktif && d.getFullYear() === tahunAktif;
+    }).sort((a,b) => new Date(b.tanggal) - new Date(a.tanggal));
+
+    const totalMasuk = dataBulanIni.filter(t => t.tipe === "masuk").reduce((s,t) => s + t.jumlah, 0);
+    const totalKeluar = dataBulanIni.filter(t => t.tipe === "keluar").reduce((s,t) => s + t.jumlah, 0);
+    const saldo = totalMasuk - totalKeluar;
+
+    document.getElementById("totalMasuk").innerText = formatRupiah(totalMasuk);
+    document.getElementById("totalKeluar").innerText = formatRupiah(totalKeluar);
+    const saldoEl = document.getElementById("saldoTotal");
+    saldoEl.innerText = (saldo < 0 ? "-" : "") + formatRupiah(saldo);
+    saldoEl.classList.toggle("negative", saldo < 0);
+
+    const daftar = document.getElementById("daftarTransaksi");
+    if (dataBulanIni.length === 0) {
+      daftar.innerHTML = '<div class="empty">Belum ada transaksi bulan ini.<br>Ketuk "+ Tambah Transaksi" untuk mulai catat.</div>';
+      return;
+    }
+    daftar.innerHTML = dataBulanIni.map(t => {
+      const tgl = new Date(t.tanggal).toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+      return `
+        <div class="entry">
+          <div class="meta">
+            <div class="cat">${t.kategori}</div>
+            <div class="note">${tgl}${t.catatan ? " · " + t.catatan : ""}</div>
+          </div>
+          <div class="amt ${t.tipe === 'masuk' ? 'in' : 'out'}">${t.tipe === 'masuk' ? '+' : '-'}${formatRupiah(t.jumlah)}</div>
+          <button class="del" onclick="hapusTransaksi(${t.id})" aria-label="Hapus">✕</button>
+        </div>`;
+    }).join("");
+  }
+
+  // ---------- TAB: LAPORAN ----------
+  function renderChipPeriode() {
+    const wrap = document.getElementById("chipPeriode");
+    wrap.innerHTML = PERIODE_OPSI.map(p =>
+      `<div class="chip ${p.key === periodeAktif ? 'active' : ''}" onclick="pilihPeriode('${p.key}')">${p.label}</div>`
+    ).join("");
+  }
+
+  function pilihPeriode(key) {
+    periodeAktif = key;
+    renderLaporan();
+  }
+
+  function getRangeTanggal() {
+    const now = new Date();
+    let start;
+    const opsi = PERIODE_OPSI.find(p => p.key === periodeAktif);
+    if (opsi.key === "ytd") {
+      start = new Date(now.getFullYear(), 0, 1);
+    } else {
+      start = new Date(now);
+      start.setDate(start.getDate() - opsi.hari);
+    }
+    return { start, end: now };
+  }
+
+  function renderLaporan() {
+    renderChipPeriode();
+    const { start, end } = getRangeTanggal();
+    const data = transaksi.filter(t => {
+      const d = new Date(t.tanggal);
+      return d >= start && d <= end;
+    });
+
+    const totalMasuk = data.filter(t => t.tipe === "masuk").reduce((s,t) => s + t.jumlah, 0);
+    const totalKeluar = data.filter(t => t.tipe === "keluar").reduce((s,t) => s + t.jumlah, 0);
+
+    document.getElementById("lapMasuk").innerText = formatRupiah(totalMasuk);
+    document.getElementById("lapKeluar").innerText = formatRupiah(totalKeluar);
+    const saldoEl = document.getElementById("lapSaldo");
+    saldoEl.innerText = (totalMasuk - totalKeluar < 0 ? "-" : "") + formatRupiah(totalMasuk - totalKeluar);
+    saldoEl.style.color = (totalMasuk - totalKeluar) < 0 ? "var(--expense)" : "var(--ink)";
+    document.getElementById("lapJumlah").innerText = data.length;
+
+    drawPie(data.filter(t => t.tipe === "keluar"));
+    drawTrend(data, start, end);
+  }
+
+  function drawPie(dataKeluar) {
+    const container = document.getElementById("pieContainer");
+    if (dataKeluar.length === 0) {
+      container.innerHTML = '<div class="empty">Belum ada pengeluaran di periode ini.</div>';
+      return;
+    }
+    const grouped = {};
+    dataKeluar.forEach(t => { grouped[t.kategori] = (grouped[t.kategori] || 0) + t.jumlah; });
+    const entries = Object.entries(grouped).sort((a,b) => b[1]-a[1]);
+    const total = entries.reduce((s,e) => s + e[1], 0);
+
+    const cx = 100, cy = 100, rOuter = 90, rInner = 52;
+    let startAngle = -90;
+    let paths = "";
+    entries.forEach((entry, i) => {
+      const [kategori, jumlah] = entry;
+      const angle = (jumlah / total) * 360;
+      const endAngle = startAngle + angle;
+      const color = PALET_KATEGORI[i % PALET_KATEGORI.length];
+      paths += arcPath(cx, cy, rOuter, rInner, startAngle, endAngle, color);
+      startAngle = endAngle;
+    });
+
+    const legend = entries.map((entry, i) => {
+      const [kategori, jumlah] = entry;
+      const pct = ((jumlah/total)*100).toFixed(0);
+      const color = PALET_KATEGORI[i % PALET_KATEGORI.length];
+      return `<div class="legend-item"><span class="legend-dot" style="background:${color}"></span>${kategori} — ${pct}%</div>`;
+    }).join("");
+
+    container.innerHTML = `
+      <svg viewBox="0 0 200 200" style="width:100%;max-width:240px;display:block;margin:0 auto;">${paths}</svg>
+      <div class="legend">${legend}</div>
+    `;
+  }
+
+  function arcPath(cx, cy, rOuter, rInner, startDeg, endDeg, color) {
+    const toRad = d => (d * Math.PI) / 180;
+    const x1o = cx + rOuter * Math.cos(toRad(startDeg));
+    const y1o = cy + rOuter * Math.sin(toRad(startDeg));
+    const x2o = cx + rOuter * Math.cos(toRad(endDeg));
+    const y2o = cy + rOuter * Math.sin(toRad(endDeg));
+    const x1i = cx + rInner * Math.cos(toRad(endDeg));
+    const y1i = cy + rInner * Math.sin(toRad(endDeg));
+    const x2i = cx + rInner * Math.cos(toRad(startDeg));
+    const y2i = cy + rInner * Math.sin(toRad(startDeg));
+    const largeArc = (endDeg - startDeg) > 180 ? 1 : 0;
+    return `<path d="M ${x1o} ${y1o} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${x2o} ${y2o} L ${x1i} ${y1i} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x2i} ${y2i} Z" fill="${color}" />`;
+  }
+
+  function drawTrend(data, start, end) {
+    const container = document.getElementById("trendContainer");
+    if (data.length === 0) {
+      container.innerHTML = '<div class="empty">Belum ada transaksi di periode ini.</div>';
+      return;
+    }
+    const spanHari = Math.max(1, Math.round((end - start) / 86400000));
+    let bucketBy = "day";
+    if (spanHari > 45) bucketBy = "month";
+    else if (spanHari > 10) bucketBy = "week";
+
+    function bucketKey(dateStr) {
+      const d = new Date(dateStr);
+      if (bucketBy === "day") return d.toISOString().slice(0,10);
+      if (bucketBy === "month") return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0");
+      const firstDay = new Date(d);
+      firstDay.setDate(d.getDate() - d.getDay());
+      return firstDay.toISOString().slice(0,10);
+    }
+    function bucketLabel(key) {
+      if (bucketBy === "month") {
+        const [y,m] = key.split("-");
+        return namaBulan[parseInt(m)-1].slice(0,3) + " " + y.slice(2);
+      }
+      const d = new Date(key);
+      return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+    }
+
+    const buckets = {};
+    data.forEach(t => {
+      const key = bucketKey(t.tanggal);
+      if (!buckets[key]) buckets[key] = { masuk: 0, keluar: 0 };
+      buckets[key][t.tipe === "masuk" ? "masuk" : "keluar"] += t.jumlah;
+    });
+
+    const keys = Object.keys(buckets).sort();
+    const maxVal = Math.max(...keys.map(k => Math.max(buckets[k].masuk, buckets[k].keluar)), 1);
+
+    const chartH = 140, barW = 14, gap = 22;
+    const width = Math.max(280, keys.length * gap + 20);
+
+    let bars = "";
+    keys.forEach((key, i) => {
+      const x = 14 + i * gap;
+      const hMasuk = (buckets[key].masuk / maxVal) * chartH;
+      const hKeluar = (buckets[key].keluar / maxVal) * chartH;
+      bars += `<rect x="${x}" y="${chartH - hMasuk + 20}" width="${barW/2}" height="${hMasuk}" fill="var(--income)" rx="2"/>`;
+      bars += `<rect x="${x + barW/2}" y="${chartH - hKeluar + 20}" width="${barW/2}" height="${hKeluar}" fill="var(--expense)" rx="2"/>`;
+      bars += `<text x="${x + barW/2}" y="${chartH + 36}" font-size="9" fill="var(--ink-soft)" text-anchor="middle" font-family="Courier New, monospace">${bucketLabel(key)}</text>`;
+    });
+
+    container.innerHTML = `
+      <div style="overflow-x:auto;">
+        <svg viewBox="0 0 ${width} ${chartH + 45}" style="width:${width}px;height:${chartH+45}px;">
+          <line x1="0" y1="${chartH+20}" x2="${width}" y2="${chartH+20}" stroke="var(--line)" stroke-width="1"/>
+          ${bars}
+        </svg>
+      </div>
+    `;
+  }
+
+  // ---------- TAB: UTANG-PIUTANG ----------
+  function bukaFormUtang() {
+    document.getElementById("inputTanggalUtang").value = new Date().toISOString().slice(0,10);
+    pilihTipeUtang("piutang");
+    document.getElementById("inputNamaUtang").value = "";
+    document.getElementById("inputJumlahUtang").value = "";
+    document.getElementById("inputCatatanUtang").value = "";
+    document.getElementById("overlayUtang").classList.add("show");
+  }
+  function tutupFormUtang() { document.getElementById("overlayUtang").classList.remove("show"); }
+
+  function pilihTipeUtang(tipe) {
+    tipeUtangAktif = tipe;
+    document.getElementById("btnPiutang").classList.toggle("active", tipe === "piutang");
+    document.getElementById("btnUtang").classList.toggle("active", tipe === "utang");
+  }
+
+  function simpanUtang() {
+    const nama = document.getElementById("inputNamaUtang").value.trim();
+    const jumlah = parseFloat(document.getElementById("inputJumlahUtang").value);
+    if (!nama) { alert("Isi nama orangnya dulu ya."); return; }
+    if (!jumlah || jumlah <= 0) { alert("Isi jumlah yang benar dulu ya."); return; }
+    utangList.push({
+      id: Date.now(),
+      tipe: tipeUtangAktif,
+      nama: nama,
+      jumlah: jumlah,
+      catatan: document.getElementById("inputCatatanUtang").value.trim(),
+      tanggal: document.getElementById("inputTanggalUtang").value || new Date().toISOString().slice(0,10),
+      lunas: false
+    });
+    simpanUtangKeStorage();
+    tutupFormUtang();
+    renderUtang();
+  }
+
+  function toggleLunas(id) {
+    const item = utangList.find(u => u.id === id);
+    if (item) item.lunas = !item.lunas;
+    simpanUtangKeStorage();
+    renderUtang();
+  }
+
+  function hapusUtang(id) {
+    if (!confirm("Hapus catatan ini?")) return;
+    utangList = utangList.filter(u => u.id !== id);
+    simpanUtangKeStorage();
+    renderUtang();
+  }
+
+  function renderUtang() {
+    const totalPiutang = utangList.filter(u => u.tipe === "piutang" && !u.lunas).reduce((s,u) => s + u.jumlah, 0);
+    const totalUtang = utangList.filter(u => u.tipe === "utang" && !u.lunas).reduce((s,u) => s + u.jumlah, 0);
+    document.getElementById("totalPiutang").innerText = formatRupiah(totalPiutang);
+    document.getElementById("totalUtang").innerText = formatRupiah(totalUtang);
+
+    const daftar = document.getElementById("daftarUtang");
+    if (utangList.length === 0) {
+      daftar.innerHTML = '<div class="empty">Belum ada catatan utang-piutang.<br>Ketuk tombol di atas untuk mulai catat.</div>';
+      return;
+    }
+    const sorted = [...utangList].sort((a,b) => (a.lunas - b.lunas) || (new Date(b.tanggal) - new Date(a.tanggal)));
+    daftar.innerHTML = sorted.map(u => {
+      const tgl = new Date(u.tanggal).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+      const labelTipe = u.tipe === "piutang" ? "Piutang" : "Utang";
+      return `
+        <div class="utang-entry ${u.lunas ? 'lunas' : ''}">
+          <div class="row1">
+            <div>
+              <div class="nama">${u.nama}</div>
+              <div class="note">${labelTipe} · ${tgl}${u.catatan ? " · " + u.catatan : ""}${u.lunas ? " · LUNAS" : ""}</div>
+            </div>
+            <div class="amt ${u.tipe}">${formatRupiah(u.jumlah)}</div>
+          </div>
+          <div class="actions">
+            <button class="lunas-btn" onclick="toggleLunas(${u.id})">${u.lunas ? "Batal Lunas" : "Tandai Lunas"}</button>
+            <button class="del-btn" onclick="hapusUtang(${u.id})">Hapus</button>
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  // Register service worker
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(err => console.log("SW gagal:", err));
+    });
+  }
+
+  renderCatatan();
+</script>
+
+</body>
+</html>
