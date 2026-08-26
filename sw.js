@@ -1,9 +1,9 @@
-const CACHE_NAME = "buku-kas-cache-v2";
+const CACHE_NAME = "buku-kas-cache-v3";
 const FILES_TO_CACHE = [
-  "./index.html",
-  "./manifest.json",
-  "./icon-192.png",
-  "./icon-512.png"
+  "/",
+  "manifest.json",
+  "icon-192.png",
+  "icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
