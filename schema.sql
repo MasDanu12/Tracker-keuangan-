@@ -78,3 +78,4 @@ CREATE TABLE IF NOT EXISTS transfers (
 CREATE INDEX IF NOT EXISTS idx_transfers_user ON transfers(user_id);
 
 ALTER TABLE utang ADD COLUMN jatuh_tempo TEXT;
+updat
