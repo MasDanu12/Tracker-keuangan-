@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tracker-keuangan",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-25",
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tracker_keuangan_db",
+      "database_id": "1a67e41e-432b-47d8-8a8a-0670fa1752f2"
+    }
+  ]
+}
