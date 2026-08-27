@@ -375,3 +375,36 @@ export default {
     }
   }
 };
+    // ============ ✅ RUTE BARU: RISET DATA ============
+    if (pathname === '/api/verifikasi-riset' && method === 'POST') {
+      try {
+        const authHeader = headers.get('Authorization');
+        if (!authHeader) throw new Error('Token hilang');
+        const token = authHeader.replace('Bearer ', '');
+        const payload = verifikasiToken(token);
+
+        const { sandi } = await request.json();
+        if (!sandi) return Response.json({error:'Isi kata sandi'}, {status:400});
+
+        const user = await db
+          .prepare('SELECT kata_sandi FROM pengguna WHERE id = ?')
+          .bind(payload.sub)
+          .first();
+
+        if (!user) return Response.json({error:'Pengguna tidak ditemukan'}, {status:404});
+
+        const cocok = await verifikasiKataSandi(sandi, user.kata_sandi);
+        if (!cocok) return Response.json({error:'Kata sandi salah'}, {status:403});
+
+        const transaksi = await db.prepare(`
+          SELECT * FROM transaksi 
+          WHERE pengguna_id = ? 
+          ORDER BY tanggal DESC
+        `).bind(payload.sub).all();
+
+        return Response.json({ data: transaksi.results }, {status:200});
+      } catch {
+        return Response.json({error: 'Akses ditolak'}, {status:401});
+      }
+    }
+
