@@ -528,11 +528,46 @@
     <div class="menu-item" onclick="toggleDarkMode()"><span>Mode Gelap</span><span id="darkModeStatus" class="arrow">Off</span></div>
     <div class="menu-item" onclick="backupData()"><span>Backup Data (Download)</span><span class="arrow">›</span></div>
     <div class="menu-item" onclick="document.getElementById('inputRestoreFile').click()"><span>Restore Data (Upload)</span><span class="arrow">›</span></div>
+    <div class="menu-item" onclick="munculKonfirmasiRiset()"><span>📂 Riset Data</span><span class="arrow"></span></div>
     <div class="menu-item danger" onclick="logout()"><span>Logout</span><span class="arrow">›</span></div>
   </div>
   <input type="file" id="inputRestoreFile" accept="application/json" style="display:none;" onchange="restoreData(event)" />
 </div>
+<!-- === RISET DATA: KOTAK & FORM === -->
+<div id="kotakKonfirmasi" style="display:none; margin:1rem; padding:1rem; border-radius:8px; background:var(--abu-terang);">
+  <p style="font-weight:500;">Apakah Anda akan melakukan Riset Data?</p>
+  <div style="display:flex; gap:0.75rem; margin-top:0.75rem;">
+    <button class="btn btn-utama" onclick="lanjutKeSandi()">Ya</button>
+    <button class="btn btn-batal" onclick="tutupKonfirmasi()">Batal</button>
+  </div>
+</div>
 
+<div id="kotakSandi" style="display:none; margin:1rem; padding:1rem; border-radius:8px; background:var(--abu-terang);">
+  <p>Masukkan kata sandi akun Anda:</p>
+  <input type="password" id="inputSandiRiset" placeholder="Kata sandi..." style="width:100%; padding:0.6rem; margin:0.5rem 0; border-radius:6px; border:1px solid #ccc;">
+  <p id="pesanSandiSalah" style="color:var(--merah); font-size:0.9rem; display:none;">❌ Kata sandi salah, coba lagi</p>
+  <div style="display:flex; gap:0.75rem; margin-top:0.5rem;">
+    <button class="btn btn-utama" onclick="cekKataSandi()">OK</button>
+    <button class="btn btn-batal" onclick="batalMasukSandi()">Batal</button>
+  </div>
+</div>
+
+<div id="daftarSemuaData" style="display:none; margin:1rem;">
+  <h4>📋 Semua Data — Hasil Riset ✅</h4>
+  <div id="isiSemuaData" style="background:#fff; padding:1rem; border-radius:8px; margin-top:0.5rem;"></div>
+  <button class="btn" style="margin-top:1rem;" onclick="tutupSemuaData()">Tutup</button>
+</div>
+
+<script>
+function munculKonfirmasiRiset(){document.getElementById("kotakKonfirmasi").style.display="block";document.getElementById("kotakSandi").style.display="none";document.getElementById("daftarSemuaData").style.display="none"}
+function lanjutKeSandi(){document.getElementById("kotakKonfirmasi").style.display="none";document.getElementById("kotakSandi").style.display="block";document.getElementById("inputSandiRiset").value=""}
+function tutupKonfirmasi(){document.getElementById("kotakKonfirmasi").style.display="none"}
+function batalMasukSandi(){document.getElementById("kotakSandi").style.display="none"}
+async function cekKataSandi(){const s=document.getElementById("inputSandiRiset").value.trim(),t=localStorage.getItem("token"),p=document.getElementById("pesanSandiSalah");if(!s){p.textContent="Masukkan kata sandi dulu!";p.style.display="block";return}const r=await fetch("/api/verifikasi-riset",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${t}`},body:JSON.stringify({sandi:s})});if(r.ok){document.getElementById("kotakSandi").style.display="none";p.style.display="none";const{data:d}=await r.json();tampilkanSemuaData(d)}else p.style.display="block"}
+function tampilkanSemuaData(d){const w=document.getElementById("isiSemuaData");w.innerHTML=!d||!d.length?"<p style='color:#666;'>Belum ada data.</p>":`<pre style="white-space:pre-wrap;font-size:.9rem;line-height:1.5;margin:0;">${JSON.stringify(d,null,2)}</pre>`;document.getElementById("daftarSemuaData").style.display="block"}
+function tutupSemuaData(){document.getElementById("daftarSemuaData").style.display="none";document.getElementById("inputSandiRiset").value=""}
+</script>
+  
 <!-- FORM: KELOLA KATEGORI -->
 <div class="overlay" id="overlayKategori">
   <div class="sheet">
