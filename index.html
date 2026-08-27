@@ -20,7 +20,20 @@
     --gold: #B8862E;
   }
 
+  html[data-theme="dark"] {
+    --paper: #12201A;
+    --paper-card: #1B2E25;
+    --ink: #EDE7D9;
+    --ink-soft: #9BB0A3;
+    --line: #3A4F42;
+    --income: #4CAF7D;
+    --expense: #E27A7A;
+    --gold: #D9A94C;
+  }
+
   * { box-sizing: border-box; }
+
+  html { background: var(--paper); }
 
   body {
     margin: 0;
@@ -328,6 +341,22 @@
   .menu-item.danger { color: var(--expense); }
   .menu-item .arrow { color: var(--line); }
 
+  /* Budget */
+  .budget-item { padding: 12px 0; border-bottom: 1px dashed var(--line); }
+  .budget-item:last-child { border-bottom: none; }
+  .budget-item .row1 { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+  .budget-item .row1 .kat { font-weight: bold; }
+  .budget-item .row1 .angka { font-family: 'Courier New', monospace; font-size: 12.5px; color: var(--ink-soft); }
+  .budget-item .row1 .angka.over { color: var(--expense); font-weight: bold; }
+  .budget-bar-bg { height: 8px; background: var(--paper); border-radius: 4px; overflow: hidden; border: 1px solid var(--line); }
+  .budget-bar-fill { height: 100%; background: var(--income); border-radius: 4px; }
+  .budget-bar-fill.over { background: var(--expense); }
+
+  .cat-manage-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed var(--line); font-size: 14.5px; }
+  .cat-manage-item .del-cat { background: none; border: none; color: var(--expense); font-size: 16px; cursor: pointer; }
+  .cat-manage-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .cat-manage-tabs .chip { flex: 1; text-align: center; }
+
   @media (prefers-reduced-motion: no-preference) {
     .sheet { animation: slideUp 0.22s ease-out; }
     @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
@@ -410,6 +439,12 @@
   </div>
 
   <div class="chart-card">
+    <div class="chart-title">Budget Bulan Ini</div>
+    <div id="budgetContainer"></div>
+    <button class="add-btn" style="margin-top:14px;margin-bottom:0;" onclick="bukaFormBudget()">+ Atur Budget Kategori</button>
+  </div>
+
+  <div class="chart-card">
     <div class="chart-title">Kategori Pengeluaran</div>
     <div id="pieContainer"></div>
   </div>
@@ -462,7 +497,47 @@
   <div class="menu-list">
     <div class="menu-item" onclick="bukaEditNama()"><span>Edit Nama</span><span class="arrow">›</span></div>
     <div class="menu-item" onclick="bukaUbahPassword()"><span>Ubah Password</span><span class="arrow">›</span></div>
+    <div class="menu-item" onclick="bukaKelolaKategori()"><span>Kelola Kategori</span><span class="arrow">›</span></div>
+    <div class="menu-item" onclick="toggleDarkMode()"><span>Mode Gelap</span><span id="darkModeStatus" class="arrow">Off</span></div>
+    <div class="menu-item" onclick="backupData()"><span>Backup Data (Download)</span><span class="arrow">›</span></div>
+    <div class="menu-item" onclick="document.getElementById('inputRestoreFile').click()"><span>Restore Data (Upload)</span><span class="arrow">›</span></div>
     <div class="menu-item danger" onclick="logout()"><span>Logout</span><span class="arrow">›</span></div>
+  </div>
+  <input type="file" id="inputRestoreFile" accept="application/json" style="display:none;" onchange="restoreData(event)" />
+</div>
+
+<!-- FORM: KELOLA KATEGORI -->
+<div class="overlay" id="overlayKategori">
+  <div class="sheet">
+    <h2>Kelola Kategori</h2>
+    <div class="cat-manage-tabs">
+      <div class="chip active" id="catTabMasuk" onclick="switchCatTab('masuk')">Pemasukan</div>
+      <div class="chip" id="catTabKeluar" onclick="switchCatTab('keluar')">Pengeluaran</div>
+    </div>
+    <div id="daftarKategoriCustom"></div>
+    <label for="inputKategoriBaru">Tambah Kategori Baru</label>
+    <input type="text" id="inputKategoriBaru" placeholder="Nama kategori" />
+    <div class="auth-error" id="kategoriError"></div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="tutupOverlay('overlayKategori')">Tutup</button>
+      <button class="btn-save" onclick="tambahKategoriBaru()">Tambah</button>
+    </div>
+  </div>
+</div>
+
+<!-- FORM: ATUR BUDGET -->
+<div class="overlay" id="overlayBudget">
+  <div class="sheet">
+    <h2>Atur Budget Kategori</h2>
+    <label for="inputKategoriBudget">Kategori Pengeluaran</label>
+    <select id="inputKategoriBudget"></select>
+    <label for="inputLimitBudget">Batas Bulanan (Rp)</label>
+    <input type="number" id="inputLimitBudget" inputmode="numeric" placeholder="0" />
+    <div class="auth-error" id="budgetError"></div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="tutupOverlay('overlayBudget')">Batal</button>
+      <button class="btn-save" onclick="simpanBudget()">Simpan</button>
+    </div>
   </div>
 </div>
 
@@ -561,6 +636,9 @@
 
   let transaksi = [];
   let utangList = [];
+  let kategoriCustom = { masuk: [], keluar: [] };
+  let budgetList = [];
+  let catTabAktif = "masuk";
   let tipeAktif = "masuk";
   let authMode = "login"; // or "register"
   let tipeUtangAktif = "piutang";
@@ -666,15 +744,178 @@
 
   async function muatSemuaData() {
     try {
-      const [trx, utg] = await Promise.all([
+      const [trx, utg, kat] = await Promise.all([
         apiFetch("/api/transactions"),
-        apiFetch("/api/utang")
+        apiFetch("/api/utang"),
+        apiFetch("/api/categories")
       ]);
       transaksi = trx.map(t => ({ id: t.id, tipe: t.tipe, jumlah: t.jumlah, kategori: t.kategori, catatan: t.catatan, tanggal: t.tanggal }));
       utangList = utg.map(u => ({ id: u.id, tipe: u.tipe, nama: u.nama, jumlah: u.jumlah, catatan: u.catatan, tanggal: u.tanggal, lunas: !!u.lunas }));
+      kategoriCustom = { masuk: [], keluar: [] };
+      kat.forEach(k => kategoriCustom[k.tipe].push(k.nama));
+      applyDarkModePref();
     } catch (err) {
       alert("Gagal memuat data: " + err.message);
     }
+  }
+
+  // ---------- DARK MODE ----------
+  function applyDarkModePref() {
+    const pref = localStorage.getItem("bukukas_theme") || "light";
+    document.documentElement.setAttribute("data-theme", pref);
+    document.getElementById("darkModeStatus").innerText = pref === "dark" ? "On" : "Off";
+  }
+  function toggleDarkMode() {
+    const current = localStorage.getItem("bukukas_theme") || "light";
+    const next = current === "dark" ? "light" : "dark";
+    localStorage.setItem("bukukas_theme", next);
+    applyDarkModePref();
+  }
+
+  // ---------- KATEGORI CUSTOM ----------
+  function bukaKelolaKategori() {
+    document.getElementById("inputKategoriBaru").value = "";
+    document.getElementById("kategoriError").innerText = "";
+    switchCatTab("masuk");
+    document.getElementById("overlayKategori").classList.add("show");
+  }
+  function switchCatTab(tipe) {
+    catTabAktif = tipe;
+    document.getElementById("catTabMasuk").classList.toggle("active", tipe === "masuk");
+    document.getElementById("catTabKeluar").classList.toggle("active", tipe === "keluar");
+    renderDaftarKategoriCustom();
+  }
+  function renderDaftarKategoriCustom() {
+    const wrap = document.getElementById("daftarKategoriCustom");
+    const bawaan = KATEGORI[catTabAktif].map(nama => `<div class="cat-manage-item"><span>${nama}</span><span style="color:var(--line);font-size:12px;">bawaan</span></div>`).join("");
+    const custom = (kategoriCustom[catTabAktif] || []).map((nama, idx) => {
+      return `<div class="cat-manage-item"><span>${nama}</span><button class="del-cat" onclick="hapusKategoriCustom('${catTabAktif}', ${idx})">✕</button></div>`;
+    }).join("");
+    wrap.innerHTML = bawaan + custom;
+  }
+  async function tambahKategoriBaru() {
+    const nama = document.getElementById("inputKategoriBaru").value.trim();
+    const errEl = document.getElementById("kategoriError");
+    if (!nama) { errEl.innerText = "Isi nama kategori dulu ya."; return; }
+    try {
+      await apiFetch("/api/categories", { method: "POST", body: JSON.stringify({ tipe: catTabAktif, nama }) });
+      kategoriCustom[catTabAktif].push(nama);
+      document.getElementById("inputKategoriBaru").value = "";
+      errEl.innerText = "";
+      renderDaftarKategoriCustom();
+    } catch (err) {
+      errEl.innerText = err.message;
+    }
+  }
+  async function hapusKategoriCustom(tipe, idx) {
+    // categories fetched fresh from API to find id since local array has no id stored
+    try {
+      const list = await apiFetch("/api/categories");
+      const nama = kategoriCustom[tipe][idx];
+      const match = list.find(k => k.tipe === tipe && k.nama === nama);
+      if (match) await apiFetch("/api/categories/" + match.id, { method: "DELETE" });
+      kategoriCustom[tipe].splice(idx, 1);
+      renderDaftarKategoriCustom();
+    } catch (err) {
+      alert("Gagal menghapus kategori: " + err.message);
+    }
+  }
+
+  // ---------- BUDGET ----------
+  function bukaFormBudget() {
+    const select = document.getElementById("inputKategoriBudget");
+    select.innerHTML = "";
+    KATEGORI.keluar.concat(kategoriCustom.keluar || []).forEach(k => {
+      const opt = document.createElement("option");
+      opt.value = k; opt.innerText = k;
+      select.appendChild(opt);
+    });
+    document.getElementById("inputLimitBudget").value = "";
+    document.getElementById("budgetError").innerText = "";
+    document.getElementById("overlayBudget").classList.add("show");
+  }
+  async function simpanBudget() {
+    const kategori = document.getElementById("inputKategoriBudget").value;
+    const limit = parseFloat(document.getElementById("inputLimitBudget").value);
+    const errEl = document.getElementById("budgetError");
+    if (!limit || limit <= 0) { errEl.innerText = "Isi batas budget yang benar dulu ya."; return; }
+    const now = new Date();
+    try {
+      await apiFetch("/api/budgets", { method: "POST", body: JSON.stringify({ kategori, limit_amount: limit, bulan: now.getMonth()+1, tahun: now.getFullYear() }) });
+      tutupOverlay("overlayBudget");
+      await muatBudgetBulanIni();
+      renderLaporan();
+    } catch (err) {
+      errEl.innerText = err.message;
+    }
+  }
+  async function muatBudgetBulanIni() {
+    const now = new Date();
+    try {
+      budgetList = await apiFetch("/api/budgets?bulan=" + (now.getMonth()+1) + "&tahun=" + now.getFullYear());
+    } catch (err) {
+      budgetList = [];
+    }
+  }
+  function renderBudget(dataKeluarBulanIni) {
+    const wrap = document.getElementById("budgetContainer");
+    if (budgetList.length === 0) {
+      wrap.innerHTML = '<div class="empty">Belum ada budget diatur bulan ini.</div>';
+      return;
+    }
+    const pengeluaranPerKategori = {};
+    dataKeluarBulanIni.forEach(t => { pengeluaranPerKategori[t.kategori] = (pengeluaranPerKategori[t.kategori] || 0) + t.jumlah; });
+
+    wrap.innerHTML = budgetList.map(b => {
+      const terpakai = pengeluaranPerKategori[b.kategori] || 0;
+      const pct = Math.min(100, (terpakai / b.limit_amount) * 100);
+      const over = terpakai > b.limit_amount;
+      return `
+        <div class="budget-item">
+          <div class="row1">
+            <span class="kat">${b.kategori}</span>
+            <span class="angka ${over ? 'over' : ''}">${formatRupiah(terpakai)} / ${formatRupiah(b.limit_amount)}</span>
+          </div>
+          <div class="budget-bar-bg"><div class="budget-bar-fill ${over ? 'over' : ''}" style="width:${pct}%"></div></div>
+        </div>`;
+    }).join("");
+  }
+
+  // ---------- BACKUP & RESTORE ----------
+  function backupData() {
+    const payload = { versi: 1, diekspor: new Date().toISOString(), transaksi, utangList };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "bukukas-backup-" + new Date().toISOString().slice(0,10) + ".json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async function restoreData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!confirm(`File ini berisi ${data.transaksi?.length || 0} transaksi dan ${data.utangList?.length || 0} catatan utang. Data ini akan DITAMBAHKAN ke akun kamu (bukan menimpa). Lanjutkan?`)) return;
+
+      for (const t of (data.transaksi || [])) {
+        await apiFetch("/api/transactions", { method: "POST", body: JSON.stringify({ tipe: t.tipe, jumlah: t.jumlah, kategori: t.kategori, catatan: t.catatan, tanggal: t.tanggal }) });
+      }
+      for (const u of (data.utangList || [])) {
+        await apiFetch("/api/utang", { method: "POST", body: JSON.stringify({ tipe: u.tipe, nama: u.nama, jumlah: u.jumlah, catatan: u.catatan, tanggal: u.tanggal }) });
+      }
+      alert("Restore berhasil!");
+      await muatSemuaData();
+      renderCatatan();
+    } catch (err) {
+      alert("Gagal restore: " + err.message);
+    }
+    event.target.value = "";
   }
 
   function tutupOverlay(id) { document.getElementById(id).classList.remove("show"); }
@@ -756,7 +997,8 @@
     document.getElementById("btnKeluar").classList.toggle("active", tipe === "keluar");
     const select = document.getElementById("inputKategori");
     select.innerHTML = "";
-    KATEGORI[tipe].forEach(k => {
+    const semuaKategori = KATEGORI[tipe].concat(kategoriCustom[tipe] || []);
+    semuaKategori.forEach(k => {
       const opt = document.createElement("option");
       opt.value = k; opt.innerText = k;
       select.appendChild(opt);
@@ -856,7 +1098,7 @@
     return { start, end: now };
   }
 
-  function renderLaporan() {
+  async function renderLaporan() {
     renderChipPeriode();
     const { start, end } = getRangeTanggal();
     const data = transaksi.filter(t => {
@@ -876,6 +1118,14 @@
 
     drawPie(data.filter(t => t.tipe === "keluar"));
     drawTrend(data, start, end);
+
+    await muatBudgetBulanIni();
+    const now = new Date();
+    const dataKeluarBulanIni = transaksi.filter(t => {
+      const d = new Date(t.tanggal);
+      return t.tipe === "keluar" && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    });
+    renderBudget(dataKeluarBulanIni);
   }
 
   function drawPie(dataKeluar) {
@@ -1088,6 +1338,9 @@
       navigator.serviceWorker.register("sw.js").catch(err => console.log("SW gagal:", err));
     });
   }
+
+  // Terapkan preferensi dark mode sedini mungkin (termasuk di layar login)
+  document.documentElement.setAttribute("data-theme", localStorage.getItem("bukukas_theme") || "light");
 
   // Cek status login saat app dibuka
   document.getElementById("authScreen").style.display = "none";

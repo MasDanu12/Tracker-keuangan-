@@ -237,6 +237,72 @@ export default {
         return json({ ok: true });
       }
 
+      // ---------- CATEGORIES: LIST + CREATE ----------
+      if (path === "/api/categories" && request.method === "GET") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const { results } = await env.DB.prepare("SELECT * FROM categories WHERE user_id = ? ORDER BY nama ASC").bind(uid).all();
+        return json(results);
+      }
+
+      if (path === "/api/categories" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        const nama = (body.nama || "").trim();
+        if (!nama || !["masuk","keluar"].includes(body.tipe)) return json({ error: "Data kategori tidak valid." }, 400);
+        const id = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO categories (id, user_id, tipe, nama, created_at) VALUES (?,?,?,?,?)")
+          .bind(id, uid, body.tipe, nama, new Date().toISOString()).run();
+        return json({ id, ok: true });
+      }
+
+      const catDelMatch = path.match(/^\/api\/categories\/([a-f0-9-]+)$/);
+      if (catDelMatch && request.method === "DELETE") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        await env.DB.prepare("DELETE FROM categories WHERE id = ? AND user_id = ?").bind(catDelMatch[1], uid).run();
+        return json({ ok: true });
+      }
+
+      // ---------- BUDGETS: LIST + UPSERT ----------
+      if (path === "/api/budgets" && request.method === "GET") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const bulan = url.searchParams.get("bulan");
+        const tahun = url.searchParams.get("tahun");
+        const { results } = await env.DB.prepare(
+          "SELECT * FROM budgets WHERE user_id = ? AND bulan = ? AND tahun = ?"
+        ).bind(uid, bulan, tahun).all();
+        return json(results);
+      }
+
+      if (path === "/api/budgets" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        if (!body.kategori || !body.limit_amount || !body.bulan || !body.tahun) return json({ error: "Data budget tidak lengkap." }, 400);
+        const existing = await env.DB.prepare(
+          "SELECT id FROM budgets WHERE user_id = ? AND kategori = ? AND bulan = ? AND tahun = ?"
+        ).bind(uid, body.kategori, body.bulan, body.tahun).first();
+        if (existing) {
+          await env.DB.prepare("UPDATE budgets SET limit_amount = ? WHERE id = ?").bind(body.limit_amount, existing.id).run();
+          return json({ id: existing.id, ok: true });
+        }
+        const id = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO budgets (id, user_id, kategori, bulan, tahun, limit_amount) VALUES (?,?,?,?,?,?)")
+          .bind(id, uid, body.kategori, body.bulan, body.tahun, body.limit_amount).run();
+        return json({ id, ok: true });
+      }
+
+      const budgetDelMatch = path.match(/^\/api\/budgets\/([a-f0-9-]+)$/);
+      if (budgetDelMatch && request.method === "DELETE") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        await env.DB.prepare("DELETE FROM budgets WHERE id = ? AND user_id = ?").bind(budgetDelMatch[1], uid).run();
+        return json({ ok: true });
+      }
+
       return json({ error: "Not found" }, 404);
     } catch (err) {
       return json({ error: "Server error: " + err.message }, 500);

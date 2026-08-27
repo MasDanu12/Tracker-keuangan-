@@ -1,4 +1,4 @@
-const CACHE_NAME = "buku-kas-cache-v4";
+const CACHE_NAME = "buku-kas-cache-v5";
 const FILES_TO_CACHE = [
   "/",
   "manifest.json",
