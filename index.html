@@ -301,6 +301,9 @@
   .utang-entry .amt.piutang { color: var(--income); }
   .utang-entry .amt.utang { color: var(--gold); }
   .utang-entry .note { font-size: 12.5px; color: var(--ink-soft); font-family: 'Courier New', monospace; margin-top: 4px; }
+  .utang-entry .jatuh-tempo { font-size: 12px; font-family: 'Courier New', monospace; margin-top: 4px; color: var(--ink-soft); }
+  .utang-entry .jatuh-tempo.overdue { color: var(--expense); font-weight: bold; }
+  .utang-entry.overdue { border: 1px solid var(--expense); }
   .utang-entry .actions { display: flex; gap: 8px; margin-top: 10px; }
   .utang-entry .actions button {
     font-family: 'Courier New', monospace;
@@ -528,9 +531,25 @@
     <div class="menu-item" onclick="toggleDarkMode()"><span>Mode Gelap</span><span id="darkModeStatus" class="arrow">Off</span></div>
     <div class="menu-item" onclick="backupData()"><span>Backup Data (Download)</span><span class="arrow">›</span></div>
     <div class="menu-item" onclick="document.getElementById('inputRestoreFile').click()"><span>Restore Data (Upload)</span><span class="arrow">›</span></div>
+    <div class="menu-item danger" onclick="mulaiResetData()"><span>Reset Semua Data Transaksi</span><span class="arrow">›</span></div>
     <div class="menu-item danger" onclick="logout()"><span>Logout</span><span class="arrow">›</span></div>
   </div>
   <input type="file" id="inputRestoreFile" accept="application/json" style="display:none;" onchange="restoreData(event)" />
+</div>
+
+<!-- FORM: KONFIRMASI PASSWORD RESET DATA -->
+<div class="overlay" id="overlayResetPassword">
+  <div class="sheet">
+    <h2>⚠️ Konfirmasi Reset Data</h2>
+    <p style="font-size:14px;color:var(--ink-soft);line-height:1.5;">Semua transaksi, utang-piutang, dan riwayat transfer kamu akan DIHAPUS PERMANEN dan tidak bisa dikembalikan. Masukkan password kamu untuk melanjutkan.</p>
+    <label for="inputPasswordReset">Password</label>
+    <input type="password" id="inputPasswordReset" placeholder="Password kamu" />
+    <div class="auth-error" id="resetPasswordError"></div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="tutupOverlay('overlayResetPassword')">Batal</button>
+      <button class="btn-save" style="background:var(--expense);" onclick="konfirmasiResetData()">Hapus Semua Data</button>
+    </div>
+  </div>
 </div>
 
 <!-- FORM: KELOLA KATEGORI -->
@@ -692,6 +711,8 @@
     <input type="text" id="inputCatatanUtang" placeholder="mis. Pinjam buat modal" />
     <label for="inputTanggalUtang">Tanggal</label>
     <input type="date" id="inputTanggalUtang" />
+    <label for="inputJatuhTempoUtang">Jatuh Tempo (opsional)</label>
+    <input type="date" id="inputJatuhTempoUtang" />
     <div class="sheet-actions">
       <button class="btn-cancel" onclick="tutupFormUtang()">Batal</button>
       <button class="btn-save" onclick="simpanUtang()">Simpan</button>
@@ -828,7 +849,7 @@
         apiFetch("/api/transfers")
       ]);
       transaksi = trx.map(t => ({ id: t.id, tipe: t.tipe, jumlah: t.jumlah, kategori: t.kategori, catatan: t.catatan, tanggal: t.tanggal, akunId: t.akun_id }));
-      utangList = utg.map(u => ({ id: u.id, tipe: u.tipe, nama: u.nama, jumlah: u.jumlah, catatan: u.catatan, tanggal: u.tanggal, lunas: !!u.lunas }));
+      utangList = utg.map(u => ({ id: u.id, tipe: u.tipe, nama: u.nama, jumlah: u.jumlah, catatan: u.catatan, tanggal: u.tanggal, lunas: !!u.lunas, jatuhTempo: u.jatuh_tempo }));
       transferList = trf.map(t => ({ id: t.id, dariAkunId: t.dari_akun_id, keAkunId: t.ke_akun_id, jumlah: t.jumlah, catatan: t.catatan, tanggal: t.tanggal }));
       kategoriCustom = { masuk: [], keluar: [] };
       kat.forEach(k => kategoriCustom[k.tipe].push(k.nama));
@@ -1161,6 +1182,35 @@
       alert("Gagal restore: " + err.message);
     }
     event.target.value = "";
+  }
+
+  // ---------- RESET SEMUA DATA (2 langkah verifikasi) ----------
+  function mulaiResetData() {
+    // Langkah 1: konfirmasi biasa
+    const yakin = confirm("Apakah kamu yakin akan menghapus SELURUH data transaksi, utang-piutang, dan transfer? Tindakan ini TIDAK BISA dibatalkan.");
+    if (!yakin) return;
+    // Langkah 2: minta password
+    document.getElementById("inputPasswordReset").value = "";
+    document.getElementById("resetPasswordError").innerText = "";
+    document.getElementById("overlayResetPassword").classList.add("show");
+  }
+
+  async function konfirmasiResetData() {
+    const password = document.getElementById("inputPasswordReset").value;
+    const errEl = document.getElementById("resetPasswordError");
+    if (!password) { errEl.innerText = "Masukkan password dulu ya."; return; }
+    try {
+      await apiFetch("/api/reset-data", { method: "POST", body: JSON.stringify({ password }) });
+      transaksi = [];
+      utangList = [];
+      transferList = [];
+      tutupOverlay("overlayResetPassword");
+      alert("Semua data berhasil dihapus.");
+      switchTab("catatan");
+      renderCatatan();
+    } catch (err) {
+      errEl.innerText = err.message;
+    }
   }
 
   function tutupOverlay(id) { document.getElementById(id).classList.remove("show"); }
@@ -1523,6 +1573,7 @@
   // ---------- TAB: UTANG-PIUTANG ----------
   function bukaFormUtang() {
     document.getElementById("inputTanggalUtang").value = new Date().toISOString().slice(0,10);
+    document.getElementById("inputJatuhTempoUtang").value = "";
     pilihTipeUtang("piutang");
     document.getElementById("inputNamaUtang").value = "";
     document.getElementById("inputJumlahUtang").value = "";
@@ -1547,7 +1598,8 @@
       nama: nama,
       jumlah: jumlah,
       catatan: document.getElementById("inputCatatanUtang").value.trim(),
-      tanggal: document.getElementById("inputTanggalUtang").value || new Date().toISOString().slice(0,10)
+      tanggal: document.getElementById("inputTanggalUtang").value || new Date().toISOString().slice(0,10),
+      jatuhTempo: document.getElementById("inputJatuhTempoUtang").value || null
     };
     try {
       const res = await apiFetch("/api/utang", { method: "POST", body: JSON.stringify(item) });
@@ -1587,6 +1639,8 @@
     document.getElementById("totalPiutang").innerText = formatRupiah(totalPiutang);
     document.getElementById("totalUtang").innerText = formatRupiah(totalUtang);
 
+    const hariIni = new Date().toISOString().slice(0,10);
+
     const daftar = document.getElementById("daftarUtang");
     if (utangList.length === 0) {
       daftar.innerHTML = '<div class="empty">Belum ada catatan utang-piutang.<br>Ketuk tombol di atas untuk mulai catat.</div>';
@@ -1596,12 +1650,21 @@
     daftar.innerHTML = sorted.map(u => {
       const tgl = new Date(u.tanggal).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
       const labelTipe = u.tipe === "piutang" ? "Piutang" : "Utang";
+      const isOverdue = !u.lunas && u.jatuhTempo && u.jatuhTempo < hariIni;
+
+      let jatuhTempoHtml = "";
+      if (u.jatuhTempo) {
+        const tglJT = new Date(u.jatuhTempo).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+        jatuhTempoHtml = `<div class="jatuh-tempo ${isOverdue ? 'overdue' : ''}">${isOverdue ? '⚠️ Lewat jatuh tempo' : '⏰ Jatuh tempo'}: ${tglJT}</div>`;
+      }
+
       return `
-        <div class="utang-entry ${u.lunas ? 'lunas' : ''}">
+        <div class="utang-entry ${u.lunas ? 'lunas' : ''} ${isOverdue ? 'overdue' : ''}">
           <div class="row1">
             <div>
               <div class="nama">${u.nama}</div>
               <div class="note">${labelTipe} · ${tgl}${u.catatan ? " · " + u.catatan : ""}${u.lunas ? " · LUNAS" : ""}</div>
+              ${jatuhTempoHtml}
             </div>
             <div class="amt ${u.tipe}">${formatRupiah(u.jumlah)}</div>
           </div>

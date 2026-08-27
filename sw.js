@@ -1,4 +1,4 @@
-const CACHE_NAME = "dompetku-cache-v8";
+const CACHE_NAME = "dompetku-cache-v9";
 const FILES_TO_CACHE = [
   "/",
   "manifest.json",

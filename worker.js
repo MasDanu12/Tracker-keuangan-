@@ -219,8 +219,8 @@ export default {
         const body = await request.json();
         const id = crypto.randomUUID();
         await env.DB.prepare(
-          "INSERT INTO utang (id, user_id, tipe, nama, jumlah, catatan, tanggal, lunas, created_at) VALUES (?,?,?,?,?,?,?,0,?)"
-        ).bind(id, uid, body.tipe, body.nama, body.jumlah, body.catatan || "", body.tanggal, new Date().toISOString()).run();
+          "INSERT INTO utang (id, user_id, tipe, nama, jumlah, catatan, tanggal, lunas, created_at, jatuh_tempo) VALUES (?,?,?,?,?,?,?,0,?,?)"
+        ).bind(id, uid, body.tipe, body.nama, body.jumlah, body.catatan || "", body.tanggal, new Date().toISOString(), body.jatuhTempo || null).run();
         return json({ id, ok: true });
       }
 
@@ -366,6 +366,24 @@ export default {
         const uid = await getUserFromRequest(request, env);
         if (!uid) return json({ error: "Unauthorized" }, 401);
         await env.DB.prepare("DELETE FROM transfers WHERE id = ? AND user_id = ?").bind(transferDelMatch[1], uid).run();
+        return json({ ok: true });
+      }
+
+      // ---------- RESET DATA (hapus semua transaksi/utang/transfer) ----------
+      if (path === "/api/reset-data" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        const user = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(uid).first();
+        if (!user) return json({ error: "User tidak ditemukan" }, 404);
+        const { hash } = await hashPassword(body.password || "", user.password_salt);
+        if (hash !== user.password_hash) return json({ error: "Password salah." }, 401);
+
+        await env.DB.batch([
+          env.DB.prepare("DELETE FROM transactions WHERE user_id = ?").bind(uid),
+          env.DB.prepare("DELETE FROM utang WHERE user_id = ?").bind(uid),
+          env.DB.prepare("DELETE FROM transfers WHERE user_id = ?").bind(uid)
+        ]);
         return json({ ok: true });
       }
 
