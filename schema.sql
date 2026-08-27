@@ -53,3 +53,14 @@ CREATE TABLE IF NOT EXISTS budgets (
 
 CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id);
 CREATE INDEX IF NOT EXISTS idx_budgets_user ON budgets(user_id, bulan, tahun);
+
+CREATE TABLE IF NOT EXISTS akun (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  nama TEXT NOT NULL,
+  tipe TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_akun_user ON akun(user_id);
+
+ALTER TABLE transactions ADD COLUMN akun_id TEXT;

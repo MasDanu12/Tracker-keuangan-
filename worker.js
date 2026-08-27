@@ -112,6 +112,14 @@ export default {
           "INSERT INTO users (id, email, nama, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?, ?)"
         ).bind(id, email, nama, hash, salt, new Date().toISOString()).run();
 
+        // Buat akun default: Tunai, Bank, E-Wallet
+        const now = new Date().toISOString();
+        await env.DB.batch([
+          env.DB.prepare("INSERT INTO akun (id, user_id, nama, tipe, created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(), id, "Tunai", "cash", now),
+          env.DB.prepare("INSERT INTO akun (id, user_id, nama, tipe, created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(), id, "Bank", "bank", now),
+          env.DB.prepare("INSERT INTO akun (id, user_id, nama, tipe, created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(), id, "E-Wallet", "ewallet", now)
+        ]);
+
         const token = await signToken({ uid: id, exp: Math.floor(Date.now()/1000) + 60*60*24*30 }, env.JWT_SECRET);
         return json({ token, nama, email });
       }
@@ -181,8 +189,8 @@ export default {
         const body = await request.json();
         const id = crypto.randomUUID();
         await env.DB.prepare(
-          "INSERT INTO transactions (id, user_id, tipe, jumlah, kategori, catatan, tanggal, created_at) VALUES (?,?,?,?,?,?,?,?)"
-        ).bind(id, uid, body.tipe, body.jumlah, body.kategori, body.catatan || "", body.tanggal, new Date().toISOString()).run();
+          "INSERT INTO transactions (id, user_id, tipe, jumlah, kategori, catatan, tanggal, created_at, akun_id) VALUES (?,?,?,?,?,?,?,?,?)"
+        ).bind(id, uid, body.tipe, body.jumlah, body.kategori, body.catatan || "", body.tanggal, new Date().toISOString(), body.akunId || null).run();
         return json({ id, ok: true });
       }
 
@@ -300,6 +308,34 @@ export default {
         const uid = await getUserFromRequest(request, env);
         if (!uid) return json({ error: "Unauthorized" }, 401);
         await env.DB.prepare("DELETE FROM budgets WHERE id = ? AND user_id = ?").bind(budgetDelMatch[1], uid).run();
+        return json({ ok: true });
+      }
+
+      // ---------- AKUN: LIST + CREATE ----------
+      if (path === "/api/akun" && request.method === "GET") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const { results } = await env.DB.prepare("SELECT * FROM akun WHERE user_id = ? ORDER BY created_at ASC").bind(uid).all();
+        return json(results);
+      }
+
+      if (path === "/api/akun" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        const nama = (body.nama || "").trim();
+        if (!nama || !["cash","bank","ewallet","lainnya"].includes(body.tipe)) return json({ error: "Data akun tidak valid." }, 400);
+        const id = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO akun (id, user_id, nama, tipe, created_at) VALUES (?,?,?,?,?)")
+          .bind(id, uid, nama, body.tipe, new Date().toISOString()).run();
+        return json({ id, ok: true });
+      }
+
+      const akunDelMatch = path.match(/^\/api\/akun\/([a-f0-9-]+)$/);
+      if (akunDelMatch && request.method === "DELETE") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        await env.DB.prepare("DELETE FROM akun WHERE id = ? AND user_id = ?").bind(akunDelMatch[1], uid).run();
         return json({ ok: true });
       }
 

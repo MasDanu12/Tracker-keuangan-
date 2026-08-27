@@ -1,7 +1,7 @@
 {
-  "name": "Buku Kas - Tracker Keuangan",
-  "short_name": "Buku Kas",
-  "description": "Catat pemasukan dan pengeluaran harianmu dengan mudah",
+  "name": "Dompetku - Tracker Keuangan",
+  "short_name": "Dompetku",
+  "description": "Keuangan Teratur, Mudah Dipantau",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
