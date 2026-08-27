@@ -1,232 +1,377 @@
+// ============ HELPERS ============
+
+function bufToHex(buf) {
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function hexToBuf(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) bytes[i/2] = parseInt(hex.substr(i,2), 16);
+  return bytes.buffer;
+}
+function b64url(input) {
+  let str = typeof input === "string" ? input : bufToBase64(input);
+  return str.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function bufToBase64(buf) {
+  let binary = "";
+  const bytes = new Uint8Array(buf);
+  for (let b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+function b64urlToBuf(str) {
+  str = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (str.length % 4) str += "=";
+  const binary = atob(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+async function hashPassword(password, saltHex) {
+  const enc = new TextEncoder();
+  const salt = saltHex ? hexToBuf(saltHex) : crypto.getRandomValues(new Uint8Array(16)).buffer;
+  const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const derived = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+    keyMaterial, 256
+  );
+  return { hash: bufToHex(derived), salt: bufToHex(salt) };
+}
+
+async function signToken(payload, secret) {
+  const enc = new TextEncoder();
+  const header = { alg: "HS256", typ: "JWT" };
+  const headerB64 = b64url(bufToBase64(enc.encode(JSON.stringify(header))));
+  const payloadB64 = b64url(bufToBase64(enc.encode(JSON.stringify(payload))));
+  const data = `${headerB64}.${payloadB64}`;
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(data));
+  const sigB64 = b64url(bufToBase64(sig));
+  return `${data}.${sigB64}`;
+}
+
+async function verifyToken(token, secret) {
+  try {
+    const [headerB64, payloadB64, sigB64] = token.split(".");
+    const enc = new TextEncoder();
+    const data = `${headerB64}.${payloadB64}`;
+    const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const valid = await crypto.subtle.verify("HMAC", key, b64urlToBuf(sigB64), enc.encode(data));
+    if (!valid) return null;
+    const payload = JSON.parse(new TextDecoder().decode(b64urlToBuf(payloadB64)));
+    if (payload.exp && Date.now() / 1000 > payload.exp) return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+async function getUserFromRequest(request, env) {
+  const auth = request.headers.get("Authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (!token) return null;
+  const payload = await verifyToken(token, env.JWT_SECRET);
+  if (!payload) return null;
+  return payload.uid;
+}
+
+// ============ MAIN HANDLER ============
+
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
-    const { pathname } = url;
-    const method = request.method;
-    const headers = request.headers;
+    const path = url.pathname;
 
-    // Inisialisasi Database D1
-    const db = env.TRACKER_KEUANGAN_DB;
-
-    // === FUNGSI BANTUAN: Verifikasi Token JWT ===
-    function verifikasiToken(token) {
-      try {
-        const [headerB64, payloadB64, sigB64] = token.split('.');
-        if (!headerB64 || !payloadB64 || !sigB64) throw new Error('Format token salah');
-        const payload = JSON.parse(atob(payloadB64));
-        if (!payload.sub || !payload.exp || Date.now() >= payload.exp * 1000) throw new Error('Token kadaluarsa');
-        return payload;
-      } catch {
-        throw new Error('Token tidak sah');
-      }
-    }
-
-    // === FUNGSI BANTUAN: Hash & Verifikasi Kata Sandi ===
-    async function hashKataSandi(sandi) {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(sandi + env.JWT_SECRET);
-      const hash = await crypto.subtle.digest('SHA-256', data);
-      return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-    async function verifikasiKataSandi(sandi, hashTersimpan) {
-      return await hashKataSandi(sandi) === hashTersimpan;
-    }
-
-    // === FUNGSI BANTUAN: Buat Token JWT ===
-    function buatToken(penggunaId, durasiJam = 24) {
-      const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=+$/, '');
-      const masaKadaluarsa = Math.floor(Date.now() / 1000) + (durasiJam * 3600);
-      const payload = btoa(JSON.stringify({ sub: penggunaId, exp: masaKadaluarsa })).replace(/=+$/, '');
-      const tandaTangan = btoa(env.JWT_SECRET).replace(/=+$/, '');
-      return `${header}.${payload}.${tandaTangan}`;
-    }
-
-    // ============ RUTE YANG SUDAH ADA ============
-    // Daftar Pengguna
-    if (pathname === '/api/daftar' && method === 'POST') {
-      try {
-        const { nama, email, sandi } = await request.json();
-        if (!nama || !email || !sandi) return Response.json({error: 'Lengkapi semua kolom'}, {status:400});
-        
-        const ada = await db.prepare('SELECT id FROM pengguna WHERE email = ?').bind(email).first();
-        if (ada) return Response.json({error: 'Email sudah terdaftar'}, {status:409});
-
-        const hash = await hashKataSandi(sandi);
-        const { success } = await db.prepare(
-          'INSERT INTO pengguna (nama, email, kata_sandi) VALUES (?, ?, ?)'
-        ).bind(nama, email, hash).run();
-
-        if (!success) return Response.json({error: 'Gagal mendaftar'}, {status:500});
-        const penggunaBaru = await db.prepare('SELECT * FROM pengguna WHERE email = ?').bind(email).first();
-        
-        // Buat rekening bawaan
-        const jenisRekening = ['Tunai', 'Bank', 'E-Wallet'];
-        for (const namaRek of jenisRekening) {
-          await db.prepare(
-            'INSERT INTO rekening (pengguna_id, nama, saldo) VALUES (?, ?, 0)'
-          ).bind(penggunaBaru.id, namaRek).run();
-        }
-
-        return Response.json({sukses:true, token: buatToken(penggunaBaru.id)});
-      } catch (e) {
-        return Response.json({error: e.message}, {status:500});
-      }
-    }
-
-    // Masuk / Login
-    if (pathname === '/api/masuk' && method === 'POST') {
-      try {
-        const { email, sandi } = await request.json();
-        const user = await db.prepare('SELECT * FROM pengguna WHERE email = ?').bind(email).first();
-        if (!user) return Response.json({error: 'Email atau kata sandi salah'}, {status:404});
-        if (!(await verifikasiKataSandi(sandi, user.kata_sandi))) {
-          return Response.json({error: 'Email atau kata sandi salah'}, {status:403});
-        }
-        return Response.json({sukses:true, token: buatToken(user.id), nama: user.nama});
-      } catch (e) {
-        return Response.json({error: e.message}, {status:500});
-      }
-    }
-
-    // Ambil Data Ringkasan
-    if (pathname === '/api/ringkasan' && method === 'GET') {
-      try {
-        const payload = verifikasiToken(headers.get('Authorization').replace('Bearer ', ''));
-        const saldo = await db.prepare('SELECT SUM(saldo) AS total FROM rekening WHERE pengguna_id = ?').bind(payload.sub).first();
-        const bulanIni = new Date().toISOString().slice(0,7);
-        const pemasukan = await db.prepare(`SELECT SUM(jumlah) AS total FROM transaksi WHERE pengguna_id = ? AND jenis='masuk' AND tanggal LIKE ?`)
-          .bind(payload.sub, `${bulanIni}%`).first();
-        const pengeluaran = await db.prepare(`SELECT SUM(jumlah) AS total FROM transaksi WHERE pengguna_id = ? AND jenis='keluar' AND tanggal LIKE ?`)
-          .bind(payload.sub, `${bulanIni}%`).first();
-        return Response.json({
-          saldo: saldo.total || 0,
-          pemasukan: pemasukan.total || 0,
-          pengeluaran: pengeluaran.total || 0
-        });
-      } catch { return Response.json({error: 'Akses ditolak'}, {status:401}); }
-    }
-
-    // CRUD Transaksi, Rekening, Kategori, Utang, Anggaran...
-    if (pathname.startsWith('/api/transaksi') && method === 'GET') {
-      try {
-        const payload = verifikasiToken(headers.get('Authorization').replace('Bearer ', ''));
-        const hasil = await db.prepare(`SELECT t.*, k.nama AS nama_kategori, r.nama AS nama_rekening 
-          FROM transaksi t 
-          LEFT JOIN kategori k ON t.kategori_id = k.id 
-          LEFT JOIN rekening r ON t.rekening_id = r.id 
-          WHERE t.pengguna_id = ? ORDER BY tanggal DESC`).bind(payload.sub).all();
-        return Response.json(hasil.results);
-      } catch { return Response.json({error: 'Akses ditolak'}, {status:401}); }
-    }
-    if (pathname === '/api/transaksi' && method === 'POST') {
-      try {
-        const payload = verifikasiToken(headers.get('Authorization').replace('Bearer ', ''));
-        const { jenis, jumlah, tanggal, keterangan, kategori_id, rekening_id } = await request.json();
-        await db.prepare(`INSERT INTO transaksi (pengguna_id, jenis, jumlah, tanggal, keterangan, kategori_id, rekening_id) 
-          VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(payload.sub, jenis, jumlah, tanggal, keterangan, kategori_id||null, rekening_id).run();
-        // Perbarui saldo rekening
-        const tanda = jenis === 'masuk' ? '+' : '-';
-        await db.prepare(`UPDATE rekening SET saldo = saldo ${tanda} ? WHERE id = ? AND pengguna_id = ?`)
-          .bind(jumlah, rekening_id, payload.sub).run();
-        return Response.json({sukses:true});
-      } catch { return Response.json({error: 'Gagal simpan'}, {status:400}); }
-    }
-    if (pathname === '/api/rekening' && method === 'GET') {
-      try {
-        const payload = verifikasiToken(headers.get('Authorization').replace('Bearer ', ''));
-        const hasil = await db.prepare('SELECT * FROM rekening WHERE pengguna_id = ?').bind(payload.sub).all();
-        return Response.json(hasil.results);
-      } catch { return Response.json({error: 'Akses ditolak'}, {status:401}); }
-    }
-    if (pathname === '/api/kategori' && method === 'GET') {
-      try {
-        const payload = verifikasiToken(headers.get('Authorization').replace('Bearer ', ''));
-        const jenis = url.searchParams.get('jenis') || 'keluar';
-        const hasil = await db.prepare('SELECT * FROM kategori WHERE pengguna_id = ? AND jenis = ?')
-          .bind(payload.sub, jenis).all();
-        return Response.json(hasil.results);
-      } catch { return Response.json({error: 'Akses ditolak'}, {status:401}); }
-    }
-    if (pathname === '/api/utang' && method === 'GET') {
-      try {
-        const payload = verifikasiToken(headers.get('Authorization').replace('Bearer ', ''));
-        const hasil = await db.prepare('SELECT * FROM utang WHERE pengguna_id = ? ORDER BY dibuat_pada DESC').bind(payload.sub).all();
-        return Response.json(hasil.results);
-      } catch { return Response.json({error: 'Akses ditolak'}, {status:401}); }
-    }
-    if (pathname === '/api/utang' && method === 'POST') {
-      try {
-        const payload = verifikasiToken(headers.get('Authorization').replace('Bearer ', ''));
-        const { nama, jumlah, catatan, lunas } = await request.json();
-        await db.prepare(`INSERT INTO utang (pengguna_id, nama, jumlah, catatan, lunas) VALUES (?, ?, ?, ?, ?)`)
-          .bind(payload.sub, nama, jumlah, catatan||'', lunas?1:0).run();
-        return Response.json({sukses:true});
-      } catch { return Response.json({error: 'Gagal simpan utang'}, {status:400}); }
-    }
-    if (pathname.startsWith('/api/utang/') && method === 'PATCH') {
-      try {
-        const payload = verifikasiToken(headers.get('Authorization').replace('Bearer ', ''));
-        const id = pathname.split('/').pop();
-        const { lunas } = await request.json();
-        await db.prepare('UPDATE utang SET lunas = ? WHERE id = ? AND pengguna_id = ?').bind(lunas, id, payload.sub).run();
-        return Response.json({sukses:true});
-      } catch { return Response.json({error: 'Gagal perbarui'}, {status:400}); }
-    }
-    if (pathname === '/api/anggaran' && method === 'GET') {
-      try {
-        const payload = verifikasiToken(headers.get('Authorization').replace('Bearer ', ''));
-        const hasil = await db.prepare('SELECT * FROM anggaran WHERE pengguna_id = ?').bind(payload.sub).all();
-        return Response.json(hasil.results);
-      } catch { return Response.json({error: 'Akses ditolak'}, {status:401}); }
-    }
-    if (pathname === '/api/anggaran' && method === 'POST') {
-      try {
-        const payload = verifikasiToken(headers.get('Authorization').replace('Bearer ', ''));
-        const { batas_bulanan } = await request.json();
-        await db.prepare('REPLACE INTO anggaran (pengguna_id, batas_bulanan) VALUES (?, ?)')
-          .bind(payload.sub, batas_bulanan).run();
-        return Response.json({sukses:true});
-      } catch { return Response.json({error: 'Gagal simpan anggaran'}, {status:400}); }
-    }
-
-    // ============ ✅ RUTE BARU: RISET DATA ============
-    if (pathname === '/api/verifikasi-riset' && method === 'POST') {
-      try {
-        const authHeader = headers.get('Authorization');
-        if (!authHeader) throw new Error('Token hilang');
-        const token = authHeader.replace('Bearer ', '');
-        const payload = verifikasiToken(token);
-
-        const { sandi } = await request.json();
-        if (!sandi) return Response.json({error:'Isi kata sandi'}, {status:400});
-
-        const user = await db
-          .prepare('SELECT kata_sandi FROM pengguna WHERE id = ?')
-          .bind(payload.sub)
-          .first();
-
-        if (!user) return Response.json({error:'Pengguna tidak ditemukan'}, {status:404});
-
-        const cocok = await verifikasiKataSandi(sandi, user.kata_sandi);
-        if (!cocok) return Response.json({error:'Kata sandi salah'}, {status:403});
-
-        const transaksi = await db.prepare(`
-          SELECT * FROM transaksi 
-          WHERE pengguna_id = ? 
-          ORDER BY tanggal DESC
-        `).bind(payload.sub).all();
-
-        return Response.json({ data: transaksi.results }, {status:200});
-      } catch {
-        return Response.json({error: 'Akses ditolak'}, {status:401});
-      }
-    }
-
-    // Sajikan halaman utama
-    if (pathname === '/' || pathname === '/index.html') {
+    if (!path.startsWith("/api/")) {
       return env.ASSETS.fetch(request);
     }
 
-    return new Response(JSON.stringify({halaman: 'tidak ditemukan'}), {status:404});
+    try {
+      // ---------- REGISTER ----------
+      if (path === "/api/register" && request.method === "POST") {
+        const body = await request.json();
+        const email = (body.email || "").trim().toLowerCase();
+        const nama = (body.nama || "").trim();
+        const password = body.password || "";
+        if (!email || !nama || password.length < 6) {
+          return json({ error: "Email, nama wajib diisi, dan password minimal 6 karakter." }, 400);
+        }
+        const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+        if (existing) return json({ error: "Email sudah terdaftar." }, 400);
+
+        const { hash, salt } = await hashPassword(password);
+        const id = crypto.randomUUID();
+        await env.DB.prepare(
+          "INSERT INTO users (id, email, nama, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+        ).bind(id, email, nama, hash, salt, new Date().toISOString()).run();
+
+        // Buat akun default: Tunai, Bank, E-Wallet
+        const now = new Date().toISOString();
+        await env.DB.batch([
+          env.DB.prepare("INSERT INTO akun (id, user_id, nama, tipe, created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(), id, "Tunai", "cash", now),
+          env.DB.prepare("INSERT INTO akun (id, user_id, nama, tipe, created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(), id, "Bank", "bank", now),
+          env.DB.prepare("INSERT INTO akun (id, user_id, nama, tipe, created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(), id, "E-Wallet", "ewallet", now)
+        ]);
+
+        const token = await signToken({ uid: id, exp: Math.floor(Date.now()/1000) + 60*60*24*30 }, env.JWT_SECRET);
+        return json({ token, nama, email });
+      }
+
+      // ---------- LOGIN ----------
+      if (path === "/api/login" && request.method === "POST") {
+        const body = await request.json();
+        const email = (body.email || "").trim().toLowerCase();
+        const password = body.password || "";
+        const user = await env.DB.prepare("SELECT * FROM users WHERE email = ?").bind(email).first();
+        if (!user) return json({ error: "Email atau password salah." }, 401);
+        const { hash } = await hashPassword(password, user.password_salt);
+        if (hash !== user.password_hash) return json({ error: "Email atau password salah." }, 401);
+
+        const token = await signToken({ uid: user.id, exp: Math.floor(Date.now()/1000) + 60*60*24*30 }, env.JWT_SECRET);
+        return json({ token, nama: user.nama, email: user.email });
+      }
+
+      // ---------- ME ----------
+      if (path === "/api/me" && request.method === "GET") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const user = await env.DB.prepare("SELECT id, email, nama FROM users WHERE id = ?").bind(uid).first();
+        if (!user) return json({ error: "User tidak ditemukan" }, 404);
+        return json(user);
+      }
+
+      // ---------- CHANGE PASSWORD ----------
+      if (path === "/api/change-password" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        const { passwordLama, passwordBaru } = body;
+        if (!passwordBaru || passwordBaru.length < 6) return json({ error: "Password baru minimal 6 karakter." }, 400);
+        const user = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(uid).first();
+        const { hash: hashLama } = await hashPassword(passwordLama, user.password_salt);
+        if (hashLama !== user.password_hash) return json({ error: "Password lama salah." }, 400);
+        const { hash, salt } = await hashPassword(passwordBaru);
+        await env.DB.prepare("UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?").bind(hash, salt, uid).run();
+        return json({ ok: true });
+      }
+
+      // ---------- EDIT PROFILE (nama) ----------
+      if (path === "/api/profile" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        const nama = (body.nama || "").trim();
+        if (!nama) return json({ error: "Nama tidak boleh kosong." }, 400);
+        await env.DB.prepare("UPDATE users SET nama = ? WHERE id = ?").bind(nama, uid).run();
+        return json({ ok: true, nama });
+      }
+
+      // ---------- TRANSACTIONS: LIST + CREATE ----------
+      if (path === "/api/transactions" && request.method === "GET") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const { results } = await env.DB.prepare(
+          "SELECT * FROM transactions WHERE user_id = ? ORDER BY tanggal DESC"
+        ).bind(uid).all();
+        return json(results);
+      }
+
+      if (path === "/api/transactions" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        const id = crypto.randomUUID();
+        await env.DB.prepare(
+          "INSERT INTO transactions (id, user_id, tipe, jumlah, kategori, catatan, tanggal, created_at, akun_id) VALUES (?,?,?,?,?,?,?,?,?)"
+        ).bind(id, uid, body.tipe, body.jumlah, body.kategori, body.catatan || "", body.tanggal, new Date().toISOString(), body.akunId || null).run();
+        return json({ id, ok: true });
+      }
+
+      // ---------- TRANSACTIONS: DELETE ----------
+      const trxMatch = path.match(/^\/api\/transactions\/([a-f0-9-]+)$/);
+      if (trxMatch && request.method === "DELETE") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        await env.DB.prepare("DELETE FROM transactions WHERE id = ? AND user_id = ?").bind(trxMatch[1], uid).run();
+        return json({ ok: true });
+      }
+
+      // ---------- UTANG: LIST + CREATE ----------
+      if (path === "/api/utang" && request.method === "GET") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const { results } = await env.DB.prepare(
+          "SELECT * FROM utang WHERE user_id = ? ORDER BY lunas ASC, tanggal DESC"
+        ).bind(uid).all();
+        return json(results);
+      }
+
+      if (path === "/api/utang" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        const id = crypto.randomUUID();
+        await env.DB.prepare(
+          "INSERT INTO utang (id, user_id, tipe, nama, jumlah, catatan, tanggal, lunas, created_at) VALUES (?,?,?,?,?,?,?,0,?)"
+        ).bind(id, uid, body.tipe, body.nama, body.jumlah, body.catatan || "", body.tanggal, new Date().toISOString()).run();
+        return json({ id, ok: true });
+      }
+
+      // ---------- UTANG: TOGGLE LUNAS ----------
+      const utangLunasMatch = path.match(/^\/api\/utang\/([a-f0-9-]+)\/lunas$/);
+      if (utangLunasMatch && request.method === "PATCH") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const row = await env.DB.prepare("SELECT lunas FROM utang WHERE id = ? AND user_id = ?").bind(utangLunasMatch[1], uid).first();
+        if (!row) return json({ error: "Tidak ditemukan" }, 404);
+        const newVal = row.lunas ? 0 : 1;
+        await env.DB.prepare("UPDATE utang SET lunas = ? WHERE id = ? AND user_id = ?").bind(newVal, utangLunasMatch[1], uid).run();
+        return json({ ok: true, lunas: !!newVal });
+      }
+
+      // ---------- UTANG: DELETE ----------
+      const utangDelMatch = path.match(/^\/api\/utang\/([a-f0-9-]+)$/);
+      if (utangDelMatch && request.method === "DELETE") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        await env.DB.prepare("DELETE FROM utang WHERE id = ? AND user_id = ?").bind(utangDelMatch[1], uid).run();
+        return json({ ok: true });
+      }
+
+      // ---------- CATEGORIES: LIST + CREATE ----------
+      if (path === "/api/categories" && request.method === "GET") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const { results } = await env.DB.prepare("SELECT * FROM categories WHERE user_id = ? ORDER BY nama ASC").bind(uid).all();
+        return json(results);
+      }
+
+      if (path === "/api/categories" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        const nama = (body.nama || "").trim();
+        if (!nama || !["masuk","keluar"].includes(body.tipe)) return json({ error: "Data kategori tidak valid." }, 400);
+        const id = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO categories (id, user_id, tipe, nama, created_at) VALUES (?,?,?,?,?)")
+          .bind(id, uid, body.tipe, nama, new Date().toISOString()).run();
+        return json({ id, ok: true });
+      }
+
+      const catDelMatch = path.match(/^\/api\/categories\/([a-f0-9-]+)$/);
+      if (catDelMatch && request.method === "DELETE") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        await env.DB.prepare("DELETE FROM categories WHERE id = ? AND user_id = ?").bind(catDelMatch[1], uid).run();
+        return json({ ok: true });
+      }
+
+      // ---------- BUDGETS: LIST + UPSERT ----------
+      if (path === "/api/budgets" && request.method === "GET") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const bulan = url.searchParams.get("bulan");
+        const tahun = url.searchParams.get("tahun");
+        const { results } = await env.DB.prepare(
+          "SELECT * FROM budgets WHERE user_id = ? AND bulan = ? AND tahun = ?"
+        ).bind(uid, bulan, tahun).all();
+        return json(results);
+      }
+
+      if (path === "/api/budgets" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        if (!body.kategori || !body.limit_amount || !body.bulan || !body.tahun) return json({ error: "Data budget tidak lengkap." }, 400);
+        const existing = await env.DB.prepare(
+          "SELECT id FROM budgets WHERE user_id = ? AND kategori = ? AND bulan = ? AND tahun = ?"
+        ).bind(uid, body.kategori, body.bulan, body.tahun).first();
+        if (existing) {
+          await env.DB.prepare("UPDATE budgets SET limit_amount = ? WHERE id = ?").bind(body.limit_amount, existing.id).run();
+          return json({ id: existing.id, ok: true });
+        }
+        const id = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO budgets (id, user_id, kategori, bulan, tahun, limit_amount) VALUES (?,?,?,?,?,?)")
+          .bind(id, uid, body.kategori, body.bulan, body.tahun, body.limit_amount).run();
+        return json({ id, ok: true });
+      }
+
+      const budgetDelMatch = path.match(/^\/api\/budgets\/([a-f0-9-]+)$/);
+      if (budgetDelMatch && request.method === "DELETE") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        await env.DB.prepare("DELETE FROM budgets WHERE id = ? AND user_id = ?").bind(budgetDelMatch[1], uid).run();
+        return json({ ok: true });
+      }
+
+      // ---------- AKUN: LIST + CREATE ----------
+      if (path === "/api/akun" && request.method === "GET") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const { results } = await env.DB.prepare("SELECT * FROM akun WHERE user_id = ? ORDER BY created_at ASC").bind(uid).all();
+        return json(results);
+      }
+
+      if (path === "/api/akun" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        const nama = (body.nama || "").trim();
+        if (!nama || !["cash","bank","ewallet","lainnya"].includes(body.tipe)) return json({ error: "Data akun tidak valid." }, 400);
+        const id = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO akun (id, user_id, nama, tipe, created_at) VALUES (?,?,?,?,?)")
+          .bind(id, uid, nama, body.tipe, new Date().toISOString()).run();
+        return json({ id, ok: true });
+      }
+
+      const akunDelMatch = path.match(/^\/api\/akun\/([a-f0-9-]+)$/);
+      if (akunDelMatch && request.method === "DELETE") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        await env.DB.prepare("DELETE FROM akun WHERE id = ? AND user_id = ?").bind(akunDelMatch[1], uid).run();
+        return json({ ok: true });
+      }
+
+      // ---------- TRANSFERS: LIST + CREATE ----------
+      if (path === "/api/transfers" && request.method === "GET") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const { results } = await env.DB.prepare("SELECT * FROM transfers WHERE user_id = ? ORDER BY tanggal DESC").bind(uid).all();
+        return json(results);
+      }
+
+      if (path === "/api/transfers" && request.method === "POST") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        const body = await request.json();
+        if (!body.dariAkunId || !body.keAkunId || !body.jumlah || body.dariAkunId === body.keAkunId) {
+          return json({ error: "Data transfer tidak valid (akun asal & tujuan harus beda)." }, 400);
+        }
+        const id = crypto.randomUUID();
+        await env.DB.prepare(
+          "INSERT INTO transfers (id, user_id, dari_akun_id, ke_akun_id, jumlah, catatan, tanggal, created_at) VALUES (?,?,?,?,?,?,?,?)"
+        ).bind(id, uid, body.dariAkunId, body.keAkunId, body.jumlah, body.catatan || "", body.tanggal, new Date().toISOString()).run();
+        return json({ id, ok: true });
+      }
+
+      const transferDelMatch = path.match(/^\/api\/transfers\/([a-f0-9-]+)$/);
+      if (transferDelMatch && request.method === "DELETE") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        await env.DB.prepare("DELETE FROM transfers WHERE id = ? AND user_id = ?").bind(transferDelMatch[1], uid).run();
+        return json({ ok: true });
+      }
+
+      return json({ error: "Not found" }, 404);
+    } catch (err) {
+      return json({ error: "Server error: " + err.message }, 500);
+    }
   }
-          }
+};
