@@ -64,3 +64,15 @@ CREATE TABLE IF NOT EXISTS akun (
 CREATE INDEX IF NOT EXISTS idx_akun_user ON akun(user_id);
 
 ALTER TABLE transactions ADD COLUMN akun_id TEXT;
+
+CREATE TABLE IF NOT EXISTS transfers (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  dari_akun_id TEXT NOT NULL,
+  ke_akun_id TEXT NOT NULL,
+  jumlah REAL NOT NULL,
+  catatan TEXT,
+  tanggal TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_transfers_user ON transfers(user_id);
