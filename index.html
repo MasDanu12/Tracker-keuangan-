@@ -347,10 +347,12 @@
   /* Budget */
   .budget-item { padding: 12px 0; border-bottom: 1px dashed var(--line); }
   .budget-item:last-child { border-bottom: none; }
-  .budget-item .row1 { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+  .budget-item .row1 { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin-bottom: 6px; }
   .budget-item .row1 .kat { font-weight: bold; }
+  .budget-item .row1 .kanan { display: flex; align-items: center; gap: 8px; }
   .budget-item .row1 .angka { font-family: 'Courier New', monospace; font-size: 12.5px; color: var(--ink-soft); }
   .budget-item .row1 .angka.over { color: var(--expense); font-weight: bold; }
+  .budget-item .row1 .del-budget { background: none; border: none; color: var(--expense); font-size: 15px; cursor: pointer; padding: 0 2px; }
   .budget-bar-bg { height: 8px; background: var(--paper); border-radius: 4px; overflow: hidden; border: 1px solid var(--line); }
   .budget-bar-fill { height: 100%; background: var(--income); border-radius: 4px; }
   .budget-bar-fill.over { background: var(--expense); }
@@ -563,10 +565,30 @@
     <div id="daftarKategoriCustom"></div>
     <label for="inputKategoriBaru">Tambah Kategori Baru</label>
     <input type="text" id="inputKategoriBaru" placeholder="Nama kategori" />
+    <label for="inputCatatanKategoriBaru">Catatan (opsional)</label>
+    <input type="text" id="inputCatatanKategoriBaru" placeholder="Keterangan tambahan" />
     <div class="auth-error" id="kategoriError"></div>
     <div class="sheet-actions">
       <button class="btn-cancel" onclick="tutupOverlay('overlayKategori')">Tutup</button>
       <button class="btn-save" onclick="tambahKategoriBaru()">Tambah</button>
+    </div>
+  </div>
+</div>
+
+<!-- FORM: EDIT KATEGORI -->
+<div class="overlay" id="overlayEditKategori">
+  <div class="sheet">
+    <h2>Edit Kategori</h2>
+    <input type="hidden" id="editKategoriId" />
+    <input type="hidden" id="editKategoriTipe" />
+    <label for="inputEditNamaKategori">Nama</label>
+    <input type="text" id="inputEditNamaKategori" />
+    <label for="inputEditCatatanKategori">Catatan (opsional)</label>
+    <input type="text" id="inputEditCatatanKategori" placeholder="Keterangan tambahan" />
+    <div class="auth-error" id="editKategoriError"></div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="tutupOverlay('overlayEditKategori')">Batal</button>
+      <button class="btn-save" onclick="simpanEditKategori()">Simpan</button>
     </div>
   </div>
 </div>
@@ -731,7 +753,7 @@
   let transaksi = [];
   let utangList = [];
   let transferList = [];
-  let kategoriCustom = { masuk: [], keluar: [] };
+  let kategoriList = { masuk: [], keluar: [] }; // {id, nama, catatan}
   let budgetList = [];
   let akunList = [];
   let akunFilterAktif = "semua";
@@ -848,11 +870,25 @@
         apiFetch("/api/akun"),
         apiFetch("/api/transfers")
       ]);
-      transaksi = trx.map(t => ({ id: t.id, tipe: t.tipe, jumlah: t.jumlah, kategori: t.kategori, catatan: t.catatan, tanggal: t.tanggal, akunId: t.akun_id }));
+      transaksi = trx.map(t => ({ id: t.id, tipe: t.tipe, jumlah: t.jumlah, kategori: t.kategori, catatan: t.catatan, tanggal: t.tanggal, akunId: t.akun_id, createdAt: t.created_at }));
       utangList = utg.map(u => ({ id: u.id, tipe: u.tipe, nama: u.nama, jumlah: u.jumlah, catatan: u.catatan, tanggal: u.tanggal, lunas: !!u.lunas, jatuhTempo: u.jatuh_tempo }));
-      transferList = trf.map(t => ({ id: t.id, dariAkunId: t.dari_akun_id, keAkunId: t.ke_akun_id, jumlah: t.jumlah, catatan: t.catatan, tanggal: t.tanggal }));
-      kategoriCustom = { masuk: [], keluar: [] };
-      kat.forEach(k => kategoriCustom[k.tipe].push(k.nama));
+      transferList = trf.map(t => ({ id: t.id, dariAkunId: t.dari_akun_id, keAkunId: t.ke_akun_id, jumlah: t.jumlah, catatan: t.catatan, tanggal: t.tanggal, createdAt: t.created_at }));
+      kategoriList = { masuk: [], keluar: [] };
+      kat.forEach(k => kategoriList[k.tipe].push({ id: k.id, nama: k.nama, catatan: k.catatan || "" }));
+
+      // Untuk user lama yang belum punya kategori default (dibuat sebelum fitur ini disempurnakan)
+      if (kategoriList.masuk.length === 0 && kategoriList.keluar.length === 0) {
+        const defaultMasuk = ["Gaji", "Usaha/Jualan", "Hadiah", "Bonus", "Lainnya"];
+        const defaultKeluar = ["Makan & Minum", "Transportasi", "Belanja", "Tagihan & Listrik", "Kesehatan", "Hiburan", "Pendidikan", "Cicilan/Utang", "Lainnya"];
+        for (const nama of defaultMasuk) {
+          const res = await apiFetch("/api/categories", { method: "POST", body: JSON.stringify({ tipe: "masuk", nama }) });
+          kategoriList.masuk.push({ id: res.id, nama, catatan: "" });
+        }
+        for (const nama of defaultKeluar) {
+          const res = await apiFetch("/api/categories", { method: "POST", body: JSON.stringify({ tipe: "keluar", nama }) });
+          kategoriList.keluar.push({ id: res.id, nama, catatan: "" });
+        }
+      }
       akunList = akn;
 
       // Untuk akun lama yang belum punya akun default (dibuat sebelum fitur ini ada)
@@ -1006,7 +1042,7 @@
     };
     try {
       const res = await apiFetch("/api/transfers", { method: "POST", body: JSON.stringify(item) });
-      transferList.push(Object.assign({ id: res.id }, item));
+      transferList.push(Object.assign({ id: res.id, createdAt: new Date().toISOString() }, item));
       tutupOverlay("overlayTransfer");
       renderCatatan();
     } catch (err) {
@@ -1038,9 +1074,10 @@
     applyDarkModePref();
   }
 
-  // ---------- KATEGORI CUSTOM ----------
+  // ---------- KELOLA KATEGORI ----------
   function bukaKelolaKategori() {
     document.getElementById("inputKategoriBaru").value = "";
+    document.getElementById("inputCatatanKategoriBaru").value = "";
     document.getElementById("kategoriError").innerText = "";
     switchCatTab("masuk");
     document.getElementById("overlayKategori").classList.add("show");
@@ -1053,37 +1090,72 @@
   }
   function renderDaftarKategoriCustom() {
     const wrap = document.getElementById("daftarKategoriCustom");
-    const bawaan = KATEGORI[catTabAktif].map(nama => `<div class="cat-manage-item"><span>${nama}</span><span style="color:var(--line);font-size:12px;">bawaan</span></div>`).join("");
-    const custom = (kategoriCustom[catTabAktif] || []).map((nama, idx) => {
-      return `<div class="cat-manage-item"><span>${nama}</span><button class="del-cat" onclick="hapusKategoriCustom('${catTabAktif}', ${idx})">✕</button></div>`;
-    }).join("");
-    wrap.innerHTML = bawaan + custom;
+    const list = kategoriList[catTabAktif] || [];
+    if (list.length === 0) { wrap.innerHTML = '<div class="empty">Belum ada kategori.</div>'; return; }
+    wrap.innerHTML = list.map(k => `
+      <div class="cat-manage-item">
+        <span>
+          ${k.nama}
+          ${k.catatan ? `<div class="note" style="margin-top:2px;">${k.catatan}</div>` : ""}
+        </span>
+        <span style="display:flex;gap:10px;flex-shrink:0;">
+          <button class="del-cat" style="color:var(--ink-soft);" onclick="bukaEditKategori('${k.id}', '${catTabAktif}')">✎</button>
+          <button class="del-cat" onclick="hapusKategoriCustom('${k.id}', '${catTabAktif}')">✕</button>
+        </span>
+      </div>`).join("");
   }
   async function tambahKategoriBaru() {
     const nama = document.getElementById("inputKategoriBaru").value.trim();
+    const catatan = document.getElementById("inputCatatanKategoriBaru").value.trim();
     const errEl = document.getElementById("kategoriError");
     if (!nama) { errEl.innerText = "Isi nama kategori dulu ya."; return; }
     try {
-      await apiFetch("/api/categories", { method: "POST", body: JSON.stringify({ tipe: catTabAktif, nama }) });
-      kategoriCustom[catTabAktif].push(nama);
+      const res = await apiFetch("/api/categories", { method: "POST", body: JSON.stringify({ tipe: catTabAktif, nama, catatan }) });
+      kategoriList[catTabAktif].push({ id: res.id, nama, catatan });
       document.getElementById("inputKategoriBaru").value = "";
+      document.getElementById("inputCatatanKategoriBaru").value = "";
       errEl.innerText = "";
       renderDaftarKategoriCustom();
     } catch (err) {
       errEl.innerText = err.message;
     }
   }
-  async function hapusKategoriCustom(tipe, idx) {
-    // categories fetched fresh from API to find id since local array has no id stored
+  async function hapusKategoriCustom(id, tipe) {
+    if (!confirm("Hapus kategori ini? Transaksi lama yang sudah pakai kategori ini tidak akan terhapus.")) return;
     try {
-      const list = await apiFetch("/api/categories");
-      const nama = kategoriCustom[tipe][idx];
-      const match = list.find(k => k.tipe === tipe && k.nama === nama);
-      if (match) await apiFetch("/api/categories/" + match.id, { method: "DELETE" });
-      kategoriCustom[tipe].splice(idx, 1);
+      await apiFetch("/api/categories/" + id, { method: "DELETE" });
+      kategoriList[tipe] = kategoriList[tipe].filter(k => k.id !== id);
       renderDaftarKategoriCustom();
     } catch (err) {
       alert("Gagal menghapus kategori: " + err.message);
+    }
+  }
+
+  function bukaEditKategori(id, tipe) {
+    const k = kategoriList[tipe].find(x => x.id === id);
+    if (!k) return;
+    document.getElementById("editKategoriId").value = id;
+    document.getElementById("editKategoriTipe").value = tipe;
+    document.getElementById("inputEditNamaKategori").value = k.nama;
+    document.getElementById("inputEditCatatanKategori").value = k.catatan || "";
+    document.getElementById("editKategoriError").innerText = "";
+    document.getElementById("overlayEditKategori").classList.add("show");
+  }
+  async function simpanEditKategori() {
+    const id = document.getElementById("editKategoriId").value;
+    const tipe = document.getElementById("editKategoriTipe").value;
+    const nama = document.getElementById("inputEditNamaKategori").value.trim();
+    const catatan = document.getElementById("inputEditCatatanKategori").value.trim();
+    const errEl = document.getElementById("editKategoriError");
+    if (!nama) { errEl.innerText = "Nama kategori tidak boleh kosong."; return; }
+    try {
+      await apiFetch("/api/categories/" + id, { method: "PATCH", body: JSON.stringify({ nama, catatan }) });
+      const k = kategoriList[tipe].find(x => x.id === id);
+      if (k) { k.nama = nama; k.catatan = catatan; }
+      tutupOverlay("overlayEditKategori");
+      renderDaftarKategoriCustom();
+    } catch (err) {
+      errEl.innerText = err.message;
     }
   }
 
@@ -1091,9 +1163,9 @@
   function bukaFormBudget() {
     const select = document.getElementById("inputKategoriBudget");
     select.innerHTML = "";
-    KATEGORI.keluar.concat(kategoriCustom.keluar || []).forEach(k => {
+    (kategoriList.keluar || []).forEach(k => {
       const opt = document.createElement("option");
-      opt.value = k; opt.innerText = k;
+      opt.value = k.nama; opt.innerText = k.nama;
       select.appendChild(opt);
     });
     document.getElementById("inputLimitBudget").value = "";
@@ -1140,11 +1212,30 @@
         <div class="budget-item">
           <div class="row1">
             <span class="kat">${b.kategori}</span>
-            <span class="angka ${over ? 'over' : ''}">${formatRupiah(terpakai)} / ${formatRupiah(b.limit_amount)}</span>
+            <span class="kanan">
+              <span class="angka ${over ? 'over' : ''}">${formatRupiah(terpakai)} / ${formatRupiah(b.limit_amount)}</span>
+              <button class="del-budget" onclick="hapusBudget('${b.id}')" aria-label="Hapus budget">✕</button>
+            </span>
           </div>
           <div class="budget-bar-bg"><div class="budget-bar-fill ${over ? 'over' : ''}" style="width:${pct}%"></div></div>
         </div>`;
     }).join("");
+  }
+
+  async function hapusBudget(id) {
+    if (!confirm("Hapus budget kategori ini?")) return;
+    try {
+      await apiFetch("/api/budgets/" + id, { method: "DELETE" });
+      budgetList = budgetList.filter(b => b.id !== id);
+      const now = new Date();
+      const dataKeluarBulanIni = transaksi.filter(t => {
+        const d = new Date(t.tanggal);
+        return t.tipe === "keluar" && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      });
+      renderBudget(dataKeluarBulanIni);
+    } catch (err) {
+      alert("Gagal menghapus budget: " + err.message);
+    }
   }
 
   // ---------- BACKUP & RESTORE ----------
@@ -1204,6 +1295,7 @@
       transaksi = [];
       utangList = [];
       transferList = [];
+      budgetList = [];
       tutupOverlay("overlayResetPassword");
       alert("Semua data berhasil dihapus.");
       switchTab("catatan");
@@ -1293,10 +1385,10 @@
     document.getElementById("btnKeluar").classList.toggle("active", tipe === "keluar");
     const select = document.getElementById("inputKategori");
     select.innerHTML = "";
-    const semuaKategori = KATEGORI[tipe].concat(kategoriCustom[tipe] || []);
+    const semuaKategori = kategoriList[tipe] || [];
     semuaKategori.forEach(k => {
       const opt = document.createElement("option");
-      opt.value = k; opt.innerText = k;
+      opt.value = k.nama; opt.innerText = k.nama;
       select.appendChild(opt);
     });
   }
@@ -1315,7 +1407,7 @@
     };
     try {
       const res = await apiFetch("/api/transactions", { method: "POST", body: JSON.stringify(item) });
-      transaksi.push(Object.assign({ id: res.id }, item));
+      transaksi.push(Object.assign({ id: res.id, createdAt: new Date().toISOString() }, item));
       tutupForm();
       renderCatatan();
     } catch (err) {
@@ -1365,9 +1457,13 @@
     const daftar = document.getElementById("daftarTransaksi");
 
     const gabungan = [
-      ...dataBulanIni.map(t => ({ jenis: "transaksi", data: t, tanggal: t.tanggal })),
-      ...transferBulanIni.map(t => ({ jenis: "transfer", data: t, tanggal: t.tanggal }))
-    ].sort((a,b) => new Date(b.tanggal) - new Date(a.tanggal));
+      ...dataBulanIni.map(t => ({ jenis: "transaksi", data: t, tanggal: t.tanggal, createdAt: t.createdAt })),
+      ...transferBulanIni.map(t => ({ jenis: "transfer", data: t, tanggal: t.tanggal, createdAt: t.createdAt }))
+    ].sort((a,b) => {
+      const bedaTanggal = new Date(b.tanggal) - new Date(a.tanggal);
+      if (bedaTanggal !== 0) return bedaTanggal;
+      return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+    });
 
     if (gabungan.length === 0) {
       daftar.innerHTML = '<div class="empty">Belum ada transaksi bulan ini.<br>Ketuk "+ Tambah Transaksi" untuk mulai catat.</div>';

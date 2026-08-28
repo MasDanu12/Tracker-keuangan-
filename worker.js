@@ -120,6 +120,18 @@ export default {
           env.DB.prepare("INSERT INTO akun (id, user_id, nama, tipe, created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(), id, "E-Wallet", "ewallet", now)
         ]);
 
+        // Buat kategori default
+        const kategoriDefaultMasuk = ["Gaji", "Usaha/Jualan", "Hadiah", "Bonus", "Lainnya"];
+        const kategoriDefaultKeluar = ["Makan & Minum", "Transportasi", "Belanja", "Tagihan & Listrik", "Kesehatan", "Hiburan", "Pendidikan", "Cicilan/Utang", "Lainnya"];
+        const insertKategoriBatch = [];
+        kategoriDefaultMasuk.forEach(nama => insertKategoriBatch.push(
+          env.DB.prepare("INSERT INTO categories (id, user_id, tipe, nama, catatan, created_at) VALUES (?,?,?,?,?,?)").bind(crypto.randomUUID(), id, "masuk", nama, "", now)
+        ));
+        kategoriDefaultKeluar.forEach(nama => insertKategoriBatch.push(
+          env.DB.prepare("INSERT INTO categories (id, user_id, tipe, nama, catatan, created_at) VALUES (?,?,?,?,?,?)").bind(crypto.randomUUID(), id, "keluar", nama, "", now)
+        ));
+        await env.DB.batch(insertKategoriBatch);
+
         const token = await signToken({ uid: id, exp: Math.floor(Date.now()/1000) + 60*60*24*30 }, env.JWT_SECRET);
         return json({ token, nama, email });
       }
@@ -260,19 +272,29 @@ export default {
         const nama = (body.nama || "").trim();
         if (!nama || !["masuk","keluar"].includes(body.tipe)) return json({ error: "Data kategori tidak valid." }, 400);
         const id = crypto.randomUUID();
-        await env.DB.prepare("INSERT INTO categories (id, user_id, tipe, nama, created_at) VALUES (?,?,?,?,?)")
-          .bind(id, uid, body.tipe, nama, new Date().toISOString()).run();
+        await env.DB.prepare("INSERT INTO categories (id, user_id, tipe, nama, catatan, created_at) VALUES (?,?,?,?,?,?)")
+          .bind(id, uid, body.tipe, nama, (body.catatan || "").trim(), new Date().toISOString()).run();
         return json({ id, ok: true });
       }
 
-      const catDelMatch = path.match(/^\/api\/categories\/([a-f0-9-]+)$/);
-      if (catDelMatch && request.method === "DELETE") {
+      const catEditMatch = path.match(/^\/api\/categories\/([a-f0-9-]+)$/);
+      if (catEditMatch && request.method === "PATCH") {
         const uid = await getUserFromRequest(request, env);
         if (!uid) return json({ error: "Unauthorized" }, 401);
-        await env.DB.prepare("DELETE FROM categories WHERE id = ? AND user_id = ?").bind(catDelMatch[1], uid).run();
+        const body = await request.json();
+        const nama = (body.nama || "").trim();
+        if (!nama) return json({ error: "Nama kategori tidak boleh kosong." }, 400);
+        await env.DB.prepare("UPDATE categories SET nama = ?, catatan = ? WHERE id = ? AND user_id = ?")
+          .bind(nama, (body.catatan || "").trim(), catEditMatch[1], uid).run();
         return json({ ok: true });
       }
 
+      if (catEditMatch && request.method === "DELETE") {
+        const uid = await getUserFromRequest(request, env);
+        if (!uid) return json({ error: "Unauthorized" }, 401);
+        await env.DB.prepare("DELETE FROM categories WHERE id = ? AND user_id = ?").bind(catEditMatch[1], uid).run();
+        return json({ ok: true });
+      }
       // ---------- BUDGETS: LIST + UPSERT ----------
       if (path === "/api/budgets" && request.method === "GET") {
         const uid = await getUserFromRequest(request, env);
@@ -284,7 +306,6 @@ export default {
         ).bind(uid, bulan, tahun).all();
         return json(results);
       }
-
       if (path === "/api/budgets" && request.method === "POST") {
         const uid = await getUserFromRequest(request, env);
         if (!uid) return json({ error: "Unauthorized" }, 401);
@@ -382,7 +403,8 @@ export default {
         await env.DB.batch([
           env.DB.prepare("DELETE FROM transactions WHERE user_id = ?").bind(uid),
           env.DB.prepare("DELETE FROM utang WHERE user_id = ?").bind(uid),
-          env.DB.prepare("DELETE FROM transfers WHERE user_id = ?").bind(uid)
+          env.DB.prepare("DELETE FROM transfers WHERE user_id = ?").bind(uid),
+          env.DB.prepare("DELETE FROM budgets WHERE user_id = ?").bind(uid)
         ]);
         return json({ ok: true });
       }
